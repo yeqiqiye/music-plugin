@@ -480,6 +480,14 @@
       }
     }
 
+    // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
+    // 否则会出现「已经登录了但按钮还写着登录」的不一致。
+    function applyLoginState() {
+      const loggedIn = Boolean(session && session.loggedIn);
+      elLoginBtn.textContent = loggedIn ? '已登录' : '登录';
+      elLoginBtn.classList.toggle('mk-primary', loggedIn);
+    }
+
     async function refreshSession() {
       if (typeof api.session !== 'function') return;
       try {
@@ -487,9 +495,7 @@
       } catch {
         session = null;
       }
-      const loggedIn = Boolean(session && session.loggedIn);
-      elLoginBtn.textContent = loggedIn ? '已登录' : '登录';
-      elLoginBtn.classList.toggle('mk-primary', loggedIn);
+      applyLoginState();
     }
 
     // ---- 事件 ----
@@ -541,6 +547,7 @@
             if (typeof api.login !== 'function') throw new Error('当前环境不支持保存登录');
             session = await api.login({ platform: 'netease', cookie });
             stat.textContent = session && session.loggedIn ? '验证通过，已登录' : '已保存（未能确认登录态）';
+            applyLoginState();
             if (session && session.loggedIn) renderLogin();
           } catch (err) {
             stat.textContent = '失败：' + String((err && err.message) || err);
@@ -550,6 +557,7 @@
             if (typeof api.logout === 'function') await api.logout();
           } catch { /* 退出失败也让 UI 回到未登录 */ }
           session = null;
+          applyLoginState();
           renderLogin();
         }
         return;

@@ -29,6 +29,9 @@ const check = (label, cond, extra = '') => {
 };
 
 const dom = new JSDOM('<!doctype html><html><head></head><body><div id="host"></div></body></html>', {
+  // getInternalVMContext() 要求显式允许脚本执行（jsdom >= 16 行为）；
+  // outside-only 只允许我们用 vm 手动注入，页面自身不执行任何脚本。
+  runScripts: 'outside-only',
   pretendToBeVisual: true,
   url: 'http://127.0.0.1:3080/',
 });
@@ -87,11 +90,16 @@ check('VIP 标记出现', rootEl.innerHTML.includes('VIP/付费'));
 check('状态栏显示条数', /2 条/.test(rootEl.querySelector('[data-el=stat]').textContent));
 
 // ---- 切平台 ----
-const secondTab = rootEl.querySelectorAll('.mk-tab')[1];
-secondTab.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+// 注意：renderTabs() 会重写整段 innerHTML，切之前抓到的节点会变成游离节点，
+// 所以高亮必须在切换之后重新查一次。
+rootEl.querySelectorAll('.mk-tab')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await new Promise((r) => setTimeout(r, 30));
 check('切平台后再次搜索', calls.length === 2 && calls[1].platform === 'kugou', JSON.stringify(calls[1]));
-check('切中的 tab 高亮', secondTab.classList.contains('mk-on'));
+const activeTab = rootEl.querySelectorAll('.mk-tab')[1];
+check(
+  '切中的 tab 高亮',
+  activeTab.classList.contains('mk-on') && !rootEl.querySelectorAll('.mk-tab')[0].classList.contains('mk-on'),
+);
 
 // ---- 登录页 ----
 rootEl.querySelector('[data-act=login]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
