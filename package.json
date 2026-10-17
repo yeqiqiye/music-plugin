@@ -23,19 +23,33 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
+    "test": "node dev/smoke-client.mjs && node dev/panel-jsdom.mjs",
     "dev:server": "node dev/server.mjs",
     "test:adapters": "node dev/try-adapters.mjs"
   },
   "keywords": [
     "dsh",
     "dsh-plugin",
+    "deepseek-harness",
     "music",
     "music-request",
     "netease",
     "kugou",
-    "qqmusic"
+    "qqmusic",
+    "bilibili"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yeqiqiye/music-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yeqiqiye/music-plugin/issues"
+  },
+  "homepage": "https://github.com/yeqiqiye/music-plugin#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-host-webserver": "*"

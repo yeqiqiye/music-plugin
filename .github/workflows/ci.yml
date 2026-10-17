@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    name: build + smoke (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 这个包没有任何运行时依赖（dev 脚本只用 node: 内置模块），不需要 npm install。
+      - name: 构建客户端产物
+        run: node scripts/build.mjs
+
+      # build.mjs 的产物是提交进仓库的：源码改了却忘了 build，这一步会红。
+      - name: 提交的 lib/client.js 必须与源码一致
+        run: git diff --exit-code -- lib/client.js
+
+      - name: 面板挂载 + 播放链路 smoke
+        run: node dev/smoke-client.mjs
+
+      # dev/panel-jsdom.mjs 没装 jsdom 会自跳过，那样这个步骤等于没测；CI 里临时装一份真跑。
+      - name: 面板 UI（真实 DOM，临时装 jsdom）
+        run: |
+          npm install --no-save --no-audit --no-fund jsdom
+          node dev/panel-jsdom.mjs

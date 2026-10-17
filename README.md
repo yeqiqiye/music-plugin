@@ -1,5 +1,7 @@
 # dsh-music-request · 点歌台
 
+[![CI](https://github.com/yeqiqiye/music-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/yeqiqiye/music-plugin/actions/workflows/ci.yml)
+
 DSH（DeepSeek Harness）的 Web 插件：按 **Alt+T** 打开面板，跨平台搜歌并**直接在面板里播放**。
 
 ## 能力
@@ -59,9 +61,11 @@ host（Node 侧，lib/）                       client（浏览器侧，client/ 
 
 ```powershell
 node scripts/build.mjs            # 构建 lib/client.js
+npm test                          # CI 跑的就是这一步：smoke-client + panel-jsdom
 node dev/try-adapters.mjs 周杰伦   # 四个平台搜索是否还通（上游随时可能变）
 node dev/probe-playurl.mjs        # 播放地址是否还能拿到（容器/码率/Range）
 node dev/smoke-client.mjs         # 假 DOM 跑真实 client.js：Alt+T、面板挂载、播放链路
+node dev/panel-jsdom.mjs          # 真 DOM（需 npm i -D jsdom；没装会自跳过）
 node dev/server.mjs               # 本地起 3098，浏览器开 /selftest 看逐项自检
 ```
 
