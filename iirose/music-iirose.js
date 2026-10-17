@@ -1,0 +1,1239 @@
+/*! music-iirose v0.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+;/**
+ * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
+ *
+ * 为什么不用 React：插件里确实能 require('react')，但这段 UI 的主体是「表单 + 列表」，
+ * 用原生 DOM 更短、更容易在浏览器里单独跑（dev/server.mjs 就把它原样发给页面），
+ * 出问题时也能直接 DevTools 调试，不需要一层构建。
+ *
+ * 对外只暴露一个挂载函数：
+ *   const panel = mountMusicPanel(container, { api: { search, platforms, login, session, logout } })
+ *   panel.open() / panel.close() / panel.dispose()
+ * `api` 刻意做成注入的：dev 版打本地 /api/*，插件版打 DSH web server 的 /music/api/*。
+ */
+(function (global) {
+  'use strict';
+
+  const PLATFORM_FALLBACK = [
+    { id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' },
+    { id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' },
+    { id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' },
+    { id: 'bilibili', label: 'B 站（Live / MV）', home: 'https://www.bilibili.com/' },
+  ];
+
+  const CSS = `
+.mk-root{position:fixed;inset:0;z-index:2147483000;display:none;align-items:center;justify-content:center;
+  font:14px/1.6 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;color:var(--mk-fg,#e9eef7)}
+.mk-root.mk-open{display:flex}
+.mk-backdrop{position:absolute;inset:0;background:rgba(6,9,14,.62);backdrop-filter:blur(3px)}
+.mk-card{position:relative;width:min(1000px,94vw);height:min(720px,90vh);display:flex;flex-direction:column;
+  background:var(--mk-bg,#141a24);border:1px solid var(--mk-line,#2b3444);border-radius:16px;overflow:hidden;
+  box-shadow:0 24px 70px rgba(0,0,0,.55)}
+.mk-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--mk-line,#2b3444)}
+.mk-title{font-size:16px;font-weight:700;letter-spacing:.3px}
+.mk-title small{display:block;font-size:11px;font-weight:400;color:var(--mk-dim,#93a1b8);letter-spacing:0}
+.mk-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.mk-btn{background:var(--mk-btn,#202a39);color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:9px;
+  padding:6px 12px;font-size:13px;cursor:pointer;transition:.12s}
+.mk-btn:hover{border-color:#3f6ea8;background:#26344a}
+.mk-btn.mk-primary{background:#173a5e;border-color:#2f6ea8;color:#cfe6ff}
+.mk-btn.mk-ghost{background:transparent}
+.mk-close{font-size:18px;line-height:1;padding:4px 10px}
+.mk-search{display:flex;gap:10px;padding:14px 16px 10px;flex-wrap:wrap;align-items:center}
+.mk-input{flex:1 1 260px;min-width:180px;background:var(--mk-input,#1b2432);color:inherit;
+  border:1px solid var(--mk-line,#2b3444);border-radius:10px;padding:10px 13px;font-size:14px;outline:none}
+.mk-input:focus{border-color:#3f6ea8}
+.mk-select{background:var(--mk-input,#1b2432);color:inherit;border:1px solid var(--mk-line,#2b3444);
+  border-radius:10px;padding:10px 12px;font-size:13px;outline:none}
+.mk-tabs{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap;border-bottom:1px solid var(--mk-line,#2b3444)}
+.mk-tab{background:transparent;color:var(--mk-dim,#93a1b8);border:1px solid transparent;border-radius:8px;
+  padding:6px 12px;font-size:13px;cursor:pointer}
+.mk-tab:hover{color:var(--mk-fg,#e9eef7);background:#1c2533}
+.mk-tab.mk-on{color:#cfe6ff;background:#17324f;border-color:#2f6ea8}
+.mk-body{flex:1;overflow:auto;padding:8px 10px 16px}
+.mk-sect{display:flex;align-items:center;gap:8px;padding:10px 8px 6px;color:var(--mk-dim,#93a1b8);font-size:12px}
+.mk-sect::after{content:"";flex:1;height:1px;background:var(--mk-line,#2b3444)}
+.mk-song{display:flex;gap:12px;align-items:center;padding:9px 10px;border-radius:10px;border:1px solid transparent}
+.mk-song:hover{background:#1a2230;border-color:var(--mk-line,#2b3444)}
+.mk-song.mk-clickable{cursor:pointer}
+.mk-idx{width:26px;text-align:right;color:var(--mk-dim,#93a1b8);font-size:12px;flex:none}
+.mk-meta{flex:1;min-width:0}
+.mk-name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-sub{font-size:12px;color:var(--mk-dim,#93a1b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-tag{font-size:10px;border:1px solid var(--mk-line,#2b3444);border-radius:20px;padding:1px 7px;color:var(--mk-dim,#93a1b8);flex:none}
+.mk-tag.mk-free{color:#7ee0b8;border-color:#2c5f4c}
+.mk-tag.mk-vip{color:#ffd479;border-color:#6b5626}
+.mk-acts{display:flex;gap:6px;flex:none}
+.mk-acts a,.mk-acts button{font-size:12px;text-decoration:none;color:inherit;border:1px solid var(--mk-line,#2b3444);
+  border-radius:8px;padding:4px 10px;background:#1e2836;cursor:pointer;font-family:inherit}
+.mk-acts a:hover,.mk-acts button:hover{border-color:#3f6ea8;background:#26344a}
+.mk-song.mk-playing{background:#16304a;border-color:#2f6ea8}
+.mk-play{width:30px;height:30px;flex:none;border-radius:50%;border:1px solid var(--mk-line,#2b3444);
+  background:#1e2836;color:inherit;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mk-play:hover{border-color:#3f6ea8;background:#26344a}
+.mk-play.mk-busy{opacity:.55;cursor:wait}
+.mk-play.mk-locked{opacity:.45;cursor:not-allowed}
+.mk-player{display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--mk-line,#2b3444);
+  background:#101720;flex-wrap:wrap}
+.mk-player .mk-ctl{width:32px;height:32px;border-radius:50%;border:1px solid var(--mk-line,#2b3444);
+  background:#1e2836;color:inherit;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
+.mk-player .mk-ctl:hover{border-color:#3f6ea8;background:#26344a}
+.mk-player .mk-ctl.mk-main{background:#173a5e;border-color:#2f6ea8;color:#cfe6ff;width:36px;height:36px}
+.mk-now{flex:1 1 150px;min-width:110px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-now small{display:block;color:var(--mk-dim,#93a1b8);font-size:11.5px}
+.mk-seek{flex:2 1 190px;display:flex;align-items:center;gap:8px;min-width:150px}
+.mk-seek input[type=range]{flex:1;accent-color:#4a8fd6}
+.mk-time{font-size:11.5px;color:var(--mk-dim,#93a1b8);font-variant-numeric:tabular-nums;flex:none;min-width:80px;text-align:right}
+.mk-vol{display:flex;align-items:center;gap:6px;flex:none;color:var(--mk-dim,#93a1b8);font-size:12px}
+.mk-vol input[type=range]{width:70px;accent-color:#4a8fd6}
+.mk-queuebadge{font-size:10px;color:#7ee0b8;border:1px solid #2c5f4c;border-radius:20px;padding:1px 6px;flex:none}
+.mk-empty{padding:34px 16px;text-align:center;color:var(--mk-dim,#93a1b8);font-size:13px}
+.mk-err{margin:8px 10px;padding:10px 12px;border-radius:10px;background:#3a1f22;border:1px solid #6b3238;color:#ffc9cf;font-size:13px}
+.mk-stat{padding:6px 16px;border-top:1px solid var(--mk-line,#2b3444);color:var(--mk-dim,#93a1b8);font-size:12px;display:flex;gap:14px;align-items:center}
+.mk-load{display:inline-block;width:13px;height:13px;border:2px solid #3f6ea8;border-top-color:transparent;
+  border-radius:50%;animation:mk-spin .7s linear infinite;vertical-align:-2px}
+@keyframes mk-spin{to{transform:rotate(360deg)}}
+.mk-login{padding:16px;max-width:560px}
+.mk-login h3{margin:0 0 4px;font-size:15px}
+.mk-login p.note{color:var(--mk-dim,#93a1b8);font-size:12.5px;margin:0 0 14px}
+.mk-field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.mk-field label{font-size:12.5px;color:var(--mk-dim,#93a1b8)}
+.mk-field textarea{min-height:96px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:12px;
+  background:var(--mk-input,#1b2432);color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:10px;padding:10px}
+.mk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mk-warn{background:#3a3320;border:1px solid #6b5a26;color:#ffe6a8;border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:12px}
+@media (max-width:640px){
+  .mk-card{width:100vw;height:100vh;border-radius:0}
+  .mk-acts{display:none}
+}
+`;
+
+  function injectCss(doc) {
+    if (doc.querySelector('style[data-music-panel]')) return;
+    const style = doc.createElement('style');
+    style.setAttribute('data-music-panel', '1');
+    style.textContent = CSS;
+    doc.head.appendChild(style);
+  }
+
+  const esc = (s) =>
+    String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const fmtDur = (msv) => {
+    if (!Number.isFinite(msv) || msv <= 0) return '';
+    const total = Math.round(msv / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  };
+
+  function mountMusicPanel(container, options) {
+    const opts = options || {};
+    const doc = container.ownerDocument || document;
+    const api = opts.api || {};
+    injectCss(doc);
+
+    const root = doc.createElement('div');
+    root.className = 'mk-root';
+    root.innerHTML = `
+      <div class="mk-backdrop"></div>
+      <div class="mk-card" role="dialog" aria-label="点歌台">
+        <div class="mk-head">
+          <div class="mk-title">点歌台 <span data-el="ver" style="font-size:11px;color:#7ee0b8;font-weight:600"></span> <small>Alt+T 开 / 关 · Esc 关闭 · 点 ▶ 播放，点行复制歌名</small></div>
+          <div class="mk-right">
+            ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
+            ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
+            <button class="mk-btn mk-ghost mk-close" data-act="close" title="关闭 (Esc)">✕</button>
+          </div>
+        </div>
+        <div class="mk-search">
+          <input class="mk-input" data-el="kw" type="search" placeholder="搜歌名 / 歌手，例如：晴天 周杰伦" autocomplete="off">
+          <select class="mk-select" data-el="limit">
+            <option value="10">10 条</option>
+            <option value="20" selected>20 条</option>
+            <option value="30">30 条</option>
+          </select>
+          <button class="mk-btn mk-primary" data-act="search">搜索</button>
+        </div>
+        <div class="mk-tabs" data-el="tabs"></div>
+        <div class="mk-body" data-el="body"></div>
+        <div class="mk-player">
+          <button class="mk-ctl" data-act="prev" title="上一首">⏮</button>
+          <button class="mk-ctl mk-main" data-act="toggle-play" title="播放 / 暂停">▶</button>
+          <button class="mk-ctl" data-act="next" title="下一首">⏭</button>
+          <div class="mk-now" data-el="now">未在播放<small>点结果里的 ▶ 开始</small></div>
+          <div class="mk-seek">
+            <input type="range" data-el="seek" min="0" max="1000" value="0" step="1">
+            <span class="mk-time" data-el="time">0:00 / 0:00</span>
+          </div>
+          <div class="mk-vol">🔊<input type="range" data-el="vol" min="0" max="100" value="90"></div>
+        </div>
+        <div class="mk-stat"><span data-el="stat">等待搜索</span></div>
+      </div>`;
+    container.appendChild(root);
+
+    // 播放器本体（不放进 innerHTML，避免解析差异；直接创建元素更稳）
+    const audio = doc.createElement('audio');
+    audio.setAttribute('data-el', 'audio');
+    audio.preload = 'none';
+    root.appendChild(audio);
+
+    const $ = (sel) => root.querySelector(sel);
+    // 浏览器给元素赋值 innerHTML 后，子节点是异步/惰性解析的：紧接着 querySelector 在极少数环境里
+    // 会拿到 null。给一个"哑元素"兜底，坏消息是渲染不出来，好消息是不会把整个面板炸掉。
+    const stub = () => ({
+      innerHTML: '',
+      textContent: '',
+      value: '',
+      src: '',
+      currentTime: 0,
+      duration: 0,
+      volume: 1,
+      childElementCount: 0,
+      prepend() {},
+      appendChild() {},
+      addEventListener() {},
+      removeEventListener() {},
+      focus() {},
+      play: async () => {},
+      pause() {},
+      load() {},
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    });
+    const elBody = $('[data-el=body]') || stub();
+    const elTabs = $('[data-el=tabs]') || stub();
+    const elKw = $('[data-el=kw]') || stub();
+    const elLimit = $('[data-el=limit]') || stub();
+    const elStat = $('[data-el=stat]') || stub();
+    const elLoginBtn = $('[data-act=login]') || stub();
+    const elNow = $('[data-el=now]') || stub();
+    const elSeek = $('[data-el=seek]') || stub();
+    const elTime = $('[data-el=time]') || stub();
+    const elVol = $('[data-el=vol]') || stub();
+    const elPlayBtn = $('[data-act=toggle-play]') || stub();
+    const elAudio = root.querySelector('[data-el=audio]') || (function () {
+      const a = doc.createElement('audio');
+      root.appendChild(a);
+      return a;
+    })();
+    if (elVol && elVol.value !== undefined) {
+      elAudio.volume = (Number(elVol.value) || 90) / 100;
+    }
+
+    let platforms = Array.isArray(opts.platforms) && opts.platforms.length ? opts.platforms : PLATFORM_FALLBACK;
+    let current = opts.platform || platforms[0].id;
+    // 'local' = 面板自己用 <audio> 放（DSH 版）；'room' = 交给宿主点播到房间（IIROSE 版）
+    let playMode = opts.playMode === 'room' ? 'room' : 'local';
+    let session = null;
+    let busy = false;
+    let lastResults = [];
+    // 播放器状态（声明放在这里：songRow 在渲染时就要读它们，函数声明会提升、let 不会）
+    let playQueue = [];
+    let playIndex = -1;
+    let playCurrent = null;
+
+    // 版本号显示在标题旁边：刷新后一眼能确认「页面里跑的是新代码」。
+    const elVer = $('[data-el=ver]');
+    if (elVer && opts.version) elVer.textContent = 'v' + opts.version;
+
+    // 「点播到房间 / 仅本机试听」：只有宿主打开 modeSwitch 才渲染这个按钮。
+    // 房间模式下进度条、音量、时间没有意义（播的是房间播放器），一并收起。
+    const elModeBtn = $('[data-act=mode]');
+    function applyMode() {
+      if (elModeBtn) {
+        elModeBtn.textContent = playMode === 'room' ? '点播到房间' : '仅本机试听';
+        elModeBtn.classList.toggle('mk-primary', playMode === 'room');
+      }
+      const hideInRoom = playMode === 'room';
+      for (const el of [elSeek, elTime, elVol]) {
+        if (el && el.style) el.style.display = hideInRoom ? 'none' : '';
+      }
+    }
+    function notifyMode() {
+      if (typeof opts.onModeChange !== 'function') return;
+      try {
+        opts.onModeChange(playMode);
+      } catch {
+        /* 宿主的持久化失败不影响面板 */
+      }
+    }
+    applyMode();
+
+    function renderTabs() {
+      elTabs.innerHTML = platforms
+        .map(
+          (p) =>
+            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}" data-tab="${esc(p.id)}">${esc(p.label)}</button>`,
+        )
+        .join('');
+    }
+
+    function setStat(text) {
+      elStat.innerHTML = text;
+    }
+
+    function showError(msg) {
+      const box = doc.createElement('div');
+      box.className = 'mk-err';
+      box.textContent = '出错了：' + msg;
+      elBody.prepend(box);
+    }
+
+    function songRow(s, i) {
+      const badge = s.vip
+        ? '<span class="mk-tag mk-vip">VIP/付费</span>'
+        : '<span class="mk-tag mk-free">可听</span>';
+      const dur = fmtDur(s.durationMs);
+      const sub = [s.artists && s.artists.join(' / '), s.album, dur].filter(Boolean).join(' · ');
+      const link = s.url
+        ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" title="在 ${esc(labelOf(s.platform))} 打开">打开</a>`
+        : '';
+      const search =
+        '<a href="' +
+        esc(searchUrl(s)) +
+        '" target="_blank" rel="noopener" title="在浏览器搜索这首歌">搜</a>';
+      const inQueue = playQueue.some((x) => x.platform === s.platform && x.id === s.id);
+      const isCurrent = playCurrent && playCurrent.platform === s.platform && playCurrent.id === s.id;
+      // IIROSE 版的兜底：房间不让点播时，把 `@@歌名 歌手` 复制走，用户自己粘到聊天框
+      const directive =
+        typeof opts.onFallback === 'function'
+          ? `<button data-directive="${i}" title="复制点播指令（房间不支持点播时用）">指令</button>`
+          : '';
+      return `<div class="mk-song mk-clickable${isCurrent ? ' mk-playing' : ''}" data-song="${i}" title="点击复制「歌名 - 歌手」">
+        <button class="mk-play${isCurrent ? ' mk-busy' : ''}" data-play="${i}" title="直接播放">${isCurrent ? '♪' : '▶'}</button>
+        <div class="mk-idx">${i + 1}</div>
+        <div class="mk-meta"><div class="mk-name">${esc(s.title)}</div><div class="mk-sub">${esc(sub)}</div></div>
+        ${inQueue ? '<span class="mk-queuebadge">已入列</span>' : ''}
+        ${badge}
+        <div class="mk-acts">
+          <button data-queue="${i}" title="加入播放队列">+ 队列</button>
+          ${directive}
+          ${link}${search}
+        </div>
+      </div>`;
+    }
+
+    function labelOf(id) {
+      const p = platforms.find((x) => x.id === id);
+      return p ? p.label : id;
+    }
+
+    // ==================== 播放器 ====================
+    // 设计取舍：
+    //   · 只有"能直连拿到音频"的歌才播（163 的 fee=1 是版权锁，拿不到就是拿不到）；
+    //   · 拿不到时给一行明确原因 + 「跳转平台」，不装作在加载；
+    //   · 一个 <audio> + 队列，播完自动下一首。
+    function songKey(s) {
+      return s.platform + ':' + s.id;
+    }
+
+    function setNow(main, sub) {
+      elNow.innerHTML = esc(main || '未在播放') + (sub ? '<small>' + esc(sub) + '</small>' : '');
+    }
+
+    function setPlayIcon(playing) {
+      elPlayBtn.textContent = playing ? '⏸' : '▶';
+    }
+
+    function refreshRows() {
+      // 只更新状态，不重渲染整个列表（避免正在输入/滚动位置被重置）
+      const rows = root.querySelectorAll('.mk-song');
+      rows.forEach((row) => {
+        const i = Number(row.dataset.song);
+        const s = lastResults[i];
+        if (!s) return;
+        const isCurrent = playCurrent && playCurrent.platform === s.platform && playCurrent.id === s.id;
+        row.classList.toggle('mk-playing', Boolean(isCurrent));
+        const btn = row.querySelector('.mk-play');
+        if (btn) btn.textContent = isCurrent ? '♪' : '▶';
+      });
+    }
+
+    async function playSong(song, { enqueue = true } = {}) {
+      if (!song) return;
+      if (enqueue) {
+        const key = songKey(song);
+        const existing = playQueue.findIndex((x) => songKey(x) === key);
+        if (existing >= 0) playIndex = existing;
+        else {
+          playQueue.push(song);
+          playIndex = playQueue.length - 1;
+        }
+      }
+      playCurrent = song;
+      const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+      setNow(label, '解析播放地址…');
+      refreshRows();
+      try {
+        if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
+        const info = await api.playurl({ platform: song.platform, id: song.id });
+        if (!info || !info.playable) {
+          const why = (info && info.note) || (info && info.reason) || '拿不到可播放地址';
+          setNow(label, '⚠ ' + why + '（可用「打开」跳去平台）');
+          setStat('无法直接播放：' + esc(why));
+          return { played: false, reason: (info && info.reason) || 'unplayable' };
+        }
+        if (playMode === 'room') {
+          // 房间模式：不碰 <audio>（否则会和房间播放器双声），把解析结果交给宿主去发点播帧
+          if (typeof opts.onEnqueue !== 'function') throw new Error('当前环境不支持点播到房间（缺 onEnqueue）');
+          await opts.onEnqueue(song, info);
+          setNow(label, '已点播到房间 · 等房间开始播');
+          setPlayIcon(true);
+          setStat('已点播：' + esc(song.title));
+          return { played: true, mode: 'room' };
+        }
+        elAudio.src = info.streamUrl;
+        elAudio.load();
+        await elAudio.play();
+        setNow(label, '播放中 · ' + (info.ext || 'audio') + (info.bitrate ? ' · ' + Math.round(info.bitrate / 1000) + 'k' : ''));
+        setPlayIcon(true);
+        setStat('正在播放：' + esc(song.title));
+        return { played: true };
+      } catch (err) {
+        const msg = String((err && err.message) || err);
+        setNow(label, '播放失败：' + msg);
+        setPlayIcon(false);
+        return { played: false, reason: msg };
+      }
+    }
+
+    function togglePlay() {
+      if (playMode === 'room') {
+        // 房间里「播放/暂停」没有意义，这里当成「重发当前这首」
+        const target = playCurrent || lastResults[0];
+        if (!target) {
+          setStat('先搜索，再点 ▶');
+          return;
+        }
+        playSong(target, { enqueue: false });
+        return;
+      }
+      if (!elAudio.src) {
+        // 还没选歌：拿当前平台第一条结果开播
+        if (lastResults[0]) playSong(lastResults[0]);
+        else setStat('先搜索，再点 ▶');
+        return;
+      }
+      if (elAudio.paused) {
+        elAudio.play().then(() => setPlayIcon(true)).catch(() => setPlayIcon(false));
+      } else {
+        elAudio.pause();
+        setPlayIcon(false);
+      }
+    }
+
+    function step(delta) {
+      if (!playQueue.length) return;
+      playIndex = (playIndex + delta + playQueue.length) % playQueue.length;
+      playSong(playQueue[playIndex], { enqueue: false });
+    }
+
+    elAudio.addEventListener('timeupdate', () => {
+      const d = elAudio.duration || 0;
+      const t = elAudio.currentTime || 0;
+      if (!elSeek.dragging) {
+        elSeek.value = d ? String(Math.round((t / d) * 1000)) : '0';
+      }
+      elTime.textContent = fmtDur(t * 1000) + ' / ' + fmtDur(d * 1000);
+    });
+    elAudio.addEventListener('ended', () => step(1));
+    elAudio.addEventListener('error', () => {
+      setNow('播放出错', '换一首试试，或点「打开」去平台听');
+      setPlayIcon(false);
+    });
+    elSeek.addEventListener('input', () => { elSeek.dragging = true; });
+    elSeek.addEventListener('change', () => {
+      elSeek.dragging = false;
+      const d = elAudio.duration || 0;
+      if (d) elAudio.currentTime = (Number(elSeek.value) / 1000) * d;
+    });
+    elVol.addEventListener('input', () => {
+      elAudio.volume = Math.min(1, Math.max(0, (Number(elVol.value) || 0) / 100));
+    });
+
+    /** 面板状态导出：给自己/测试用，一眼看出播放器在干什么 */
+    function playerState() {
+      return {
+        mode: playMode,
+        queue: playQueue.map((s) => songKey(s)),
+        index: playIndex,
+        current: playCurrent ? songKey(playCurrent) : null,
+        src: elAudio.src ? String(elAudio.src).slice(0, 120) : null,
+        paused: elAudio.paused,
+      };
+    }
+
+    function searchUrl(s) {
+      const kw = [s.title, (s.artists || [])[0]].filter(Boolean).join(' ');
+      const home = (platforms.find((x) => x.id === s.platform) || {}).home || '';
+      if (s.platform === 'netease') return 'https://music.163.com/#/search/m/?s=' + encodeURIComponent(kw);
+      if (s.platform === 'kugou') return 'https://www.kugou.com/yy/html/search.html#searchType=song&searchKeyWord=' + encodeURIComponent(kw);
+      if (s.platform === 'qq') return 'https://y.qq.com/n/ryqq/search?w=' + encodeURIComponent(kw);
+      if (s.platform === 'bilibili') return 'https://search.bilibili.com/all?keyword=' + encodeURIComponent(kw);
+      return home;
+    }
+
+    function renderLogin() {
+      const who = session && session.nickname ? session.nickname : null;
+      const loggedIn = Boolean(session && session.loggedIn);
+      elBody.innerHTML = `
+        <div class="mk-login">
+          <h3>${loggedIn ? '已登录' : '登录（可选）'}</h3>
+          <p class="note">${loggedIn
+            ? '当前身份：' + esc(who || '已登录用户') + '（' + esc(session.platform || 'netease') + '）'
+            : '搜索不需要登录。登录只是为了在结果里标注「你的收藏 / 你常听」，以及后续做歌单导入。'}</p>
+          <div class="mk-warn">凭据只写进本机 <code>DSH_HOME/music-plugin/credentials.json</code>（权限 600），
+            不会发给任何第三方；插件也不会把它打印到日志或列表里。公共电脑上建议别存。</div>
+          <div class="mk-field">
+            <label>网易云 Cookie（浏览器登录 music.163.com 后，F12 → 网络 → 任意请求 → 复制 Cookie 请求头）</label>
+            <textarea data-el="cookie" placeholder="MUSIC_U=...; __csrf=...;"></textarea>
+          </div>
+          <div class="mk-row">
+            <button class="mk-btn mk-primary" data-act="save-login">保存并验证</button>
+            <button class="mk-btn" data-act="logout" ${loggedIn ? '' : 'disabled'}>退出登录</button>
+            <span data-el="login-stat" class="mk-sub"></span>
+          </div>
+          <p class="note" style="margin-top:14px">为什么不做账号密码登录：那要求你把账号密码交给一个第三方插件，
+            风险和收益完全不成比例；扫码登录需要走官方 App 的私有接口，同样不适合。</p>
+        </div>`;
+    }
+
+    async function doSearch() {
+      if (busy) return;
+      const kw = elKw.value.trim();
+      if (!kw) {
+        elBody.innerHTML = '<div class="mk-empty">先输入歌名或歌手</div>';
+        return;
+      }
+      busy = true;
+      setStat('<span class="mk-load"></span> 正在搜 ' + esc(labelOf(current)));
+      elBody.innerHTML = '<div class="mk-empty">搜索中…</div>';
+      try {
+        const data = await api.search({ platform: current, keyword: kw, limit: Number(elLimit.value) || 20 });
+        lastResults = data || [];
+        if (!lastResults.length) {
+          elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
+          setStat('0 条 · ' + esc(labelOf(current)));
+        } else {
+          elBody.innerHTML =
+            '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
+            lastResults.map(songRow).join('');
+          setStat(lastResults.length + ' 条 · ' + esc(labelOf(current)));
+        }
+      } catch (err) {
+        elBody.innerHTML = '';
+        showError(String((err && err.message) || err));
+        setStat('失败');
+      } finally {
+        busy = false;
+      }
+    }
+
+    // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
+    // 否则会出现「已经登录了但按钮还写着登录」的不一致。
+    function applyLoginState() {
+      const loggedIn = Boolean(session && session.loggedIn);
+      elLoginBtn.textContent = loggedIn ? '已登录' : '登录';
+      elLoginBtn.classList.toggle('mk-primary', loggedIn);
+    }
+
+    async function refreshSession() {
+      if (typeof api.session !== 'function') return;
+      try {
+        session = await api.session();
+      } catch {
+        session = null;
+      }
+      applyLoginState();
+    }
+
+    // ---- 事件 ----
+    root.addEventListener('click', async (ev) => {
+      const tab = ev.target.closest('[data-tab]');
+      if (tab) {
+        current = tab.dataset.tab;
+        renderTabs();
+        if (elKw.value.trim()) doSearch();
+        return;
+      }
+      // 播放 / 入队 / 播放器控制（这些要放在 act 之前判断，优先级最高）
+      const playBtn = ev.target.closest('[data-play]');
+      if (playBtn) {
+        const s = lastResults[Number(playBtn.dataset.play)];
+        if (s) {
+          playBtn.classList.add('mk-busy');
+          await playSong(s);
+          playBtn.classList.remove('mk-busy');
+        }
+        return;
+      }
+      const queueBtn = ev.target.closest('[data-queue]');
+      if (queueBtn) {
+        const s = lastResults[Number(queueBtn.dataset.queue)];
+        if (s && !playQueue.some((x) => songKey(x) === songKey(s))) {
+          playQueue.push(s);
+          setStat('已加入队列（' + playQueue.length + ' 首）：' + esc(s.title));
+          refreshRows();
+        }
+        return;
+      }
+      const dirBtn = ev.target.closest('[data-directive]');
+      if (dirBtn) {
+        const s = lastResults[Number(dirBtn.dataset.directive)];
+        if (s && typeof opts.onFallback === 'function') {
+          try {
+            const text = await opts.onFallback(s);
+            setStat('已复制指令「' + esc(text) + '」，粘到聊天框发送即可');
+          } catch (err) {
+            setStat('复制指令失败：' + esc(String((err && err.message) || err)));
+          }
+        }
+        return;
+      }
+      const act = ev.target.closest('[data-act]');
+      if (act) {
+        const name = act.dataset.act;
+        if (name === 'close') close();
+        else if (name === 'search') doSearch();
+        else if (name === 'mode') {
+          playMode = playMode === 'room' ? 'local' : 'room';
+          if (playMode === 'room') {
+            try {
+              elAudio.pause();
+            } catch {
+              /* 没在放就无所谓 */
+            }
+          }
+          applyMode();
+          notifyMode();
+          setStat(playMode === 'room' ? '已切到「点播到房间」' : '已切到「仅本机试听」');
+        }
+        else if (name === 'prev') step(-1);
+        else if (name === 'next') step(1);
+        else if (name === 'toggle-play') togglePlay();
+        else if (name === 'login') {
+          renderLogin();
+          setStat('登录设置');
+        } else if (name === 'save-login') {
+          const cookie = root.querySelector('[data-el=cookie]').value.trim();
+          const stat = root.querySelector('[data-el=login-stat]');
+          stat.textContent = '验证中…';
+          try {
+            if (typeof api.login !== 'function') throw new Error('当前环境不支持保存登录');
+            session = await api.login({ platform: 'netease', cookie });
+            stat.textContent = session && session.loggedIn ? '验证通过，已登录' : '已保存（未能确认登录态）';
+            applyLoginState();
+            if (session && session.loggedIn) renderLogin();
+          } catch (err) {
+            stat.textContent = '失败：' + String((err && err.message) || err);
+          }
+        } else if (name === 'logout') {
+          try {
+            if (typeof api.logout === 'function') await api.logout();
+          } catch { /* 退出失败也让 UI 回到未登录 */ }
+          session = null;
+          applyLoginState();
+          renderLogin();
+        }
+        return;
+      }
+      // 点行空白处 = 复制歌名；点行里的 ▶ = 直接播（上面已处理）
+      const row = ev.target.closest('[data-song]');
+      if (row && !ev.target.closest('a') && !ev.target.closest('button')) {
+        const s = lastResults[Number(row.dataset.song)];
+        if (!s) return;
+        const text = s.title + ' - ' + (s.artists || []).join('/');
+        try {
+          await navigator.clipboard.writeText(text);
+          setStat('已复制：' + esc(text));
+        } catch {
+          setStat('复制失败，请手动选择文本');
+        }
+      }
+    });
+
+    root.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        ev.stopPropagation();
+        close();
+      } else if (ev.key === 'Enter' && ev.target === elKw) {
+        ev.preventDefault();
+        doSearch();
+      }
+    });
+
+    function onDocKey(ev) {
+      if (ev.key === 'Escape' && root.classList.contains('mk-open')) close();
+    }
+
+    function open() {
+      root.classList.add('mk-open');
+      renderTabs();
+      if (!elBody.childElementCount) {
+        elBody.innerHTML =
+          '<div class="mk-empty">输入关键词，回车搜索。<br>' +
+          platforms.map((p) => esc(p.label)).join(' · ') +
+          '</div>';
+      }
+      doc.addEventListener('keydown', onDocKey, true);
+      setTimeout(() => elKw.focus(), 0);
+      refreshSession();
+    }
+
+    function close() {
+      root.classList.remove('mk-open');
+      doc.removeEventListener('keydown', onDocKey, true);
+    }
+
+    function toggle() {
+      if (root.classList.contains('mk-open')) close();
+      else open();
+    }
+
+    function dispose() {
+      close();
+      root.remove();
+    }
+
+    if (typeof api.platforms === 'function') {
+      api.platforms()
+        .then((list) => {
+          if (Array.isArray(list) && list.length) {
+            platforms = list;
+            renderTabs();
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (opts.openOnMount !== false) open();
+    return {
+      open,
+      close,
+      toggle,
+      dispose,
+      root,
+      audio: elAudio,
+      setPlatform(id) { current = id; renderTabs(); },
+      /** 宿主（IIROSE 版）可以在运行时切模式，例如读 localStorage 的偏好 */
+      setMode(mode) {
+        playMode = mode === 'room' ? 'room' : 'local';
+        applyMode();
+        notifyMode();
+        return playMode;
+      },
+      getMode: () => playMode,
+      /** 宿主把「房间正在播放」推回面板（IIROSE 版监听 &1 帧后调用） */
+      setRoomNow(text, sub) {
+        setNow(text || '未在播放', sub || '');
+      },
+      // 给外面的测试/诊断用
+      play: (song) => playSong(song || lastResults[0]),
+      queue: () => playQueue.slice(),
+      results: () => lastResults.slice(),
+      state: playerState,
+    };
+  }
+
+  global.mountMusicPanel = mountMusicPanel;
+  if (typeof module !== 'undefined' && module.exports) module.exports = { mountMusicPanel };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+;/**
+ * IIROSE 版点歌台 —— 源码（产物是 iirose/music-iirose.js，别直接引用这个文件）。
+ *
+ * 和 DSH 版的区别，一句话：这里没有 Node 半侧。
+ *   · 搜索 / 取直链 → 浏览器直接打 api.shadowsee.icu（它对 https://iirose.com 回 CORS 白名单）
+ *   · 点播到房间   → 走页面自身的 WebSocket（window.socket 或 #mainFrame.contentWindow.socket），
+ *                    发两帧：`&1{json}`（媒体数据）+ `m__4@0>...`（点播卡片）
+ *   · 本地播放     → 完全不碰，否则会和房间播放器双声
+ *
+ * 协议来源（都是别人在生产里跑通的实现，不是猜的）：
+ *   · iirose-scripts 的 script-manager：脚本列表就是 localStorage['extJs']
+ *   · iirose-scripts 的 emoji 插件：`node.contentWindow.socket` + `socket.send(JSON.stringify({m,mc,i}))`
+ *   · koishi-plugin-adapter-iirose：media_data.ts / media_card.ts 定义的 &1 帧与卡片格式
+ *
+ * 构建：node scripts/build-iirose.mjs（把面板源码与版本号注入进来，占位符写在构建脚本里）
+ */
+;(function () {
+  'use strict';
+
+  var VERSION = '0.2.0';
+
+  // 幂等：同一个页面被重复注入（改 URL 后没刷新、脚本列表里贴了两遍）时不挂第二套。
+  if (window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.mounted) return;
+
+  // 面板源码不在运行时注入：构建脚本把它拼在这个文件前面，直接就是同一个 <script>。
+  // 这样不依赖「内联 <script> 能不能执行」——很多站点的 CSP 会拦 inline，但不会拦 <script src>。
+
+  var API_DEFAULT = 'https://api.shadowsee.icu';
+  var LS = {
+    api: 'mk_iirose_api',
+    hotkey: 'mk_iirose_hotkey',
+    mode: 'mk_iirose_mode',
+  };
+  var CARD_PREFIX = 'm__4@0>'; // @0 = 网易云
+  var HINT = 'Alt+T 开 / 关 · 点 ▶ 发到房间';
+
+  // ---------------------------------------------------------------- 小工具
+
+  function ls(key, fallback) {
+    try {
+      var v = window.localStorage.getItem(key);
+      return v == null || v === '' ? fallback : v;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function lsSet(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      /* 隐私模式写不进去就算了 */
+    }
+  }
+
+  function apiBase() {
+    return String(ls(LS.api, API_DEFAULT)).replace(/\/+$/, '') || API_DEFAULT;
+  }
+
+  /** adapter 的 encode：& < > " ' / → HTML 实体（点播卡片里的字段要用它） */
+  var ENTITY = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;' };
+  function enc(str) {
+    return String(str == null ? '' : str).replace(/[&<>"'/]/g, function (ch) {
+      return ENTITY[ch];
+    });
+  }
+
+  function msgId() {
+    return String(Date.now()).slice(-5) + String(Math.random()).slice(-7);
+  }
+
+  /** 163 的 picUrl 是 http，页面上要 https，否则混合内容会被拦 */
+  function https(url) {
+    if (!url) return '';
+    return url.indexOf('http://') === 0 ? 'https://' + url.slice(7) : String(url);
+  }
+
+  function log() {
+    try {
+      console.info.apply(console, ['[music-iirose]'].concat([].slice.call(arguments)));
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
+
+  // ------------------------------------------------------------ 定位应用窗口
+
+  /**
+   * IIROSE 的应用可能跑在顶层，也可能在 #mainFrame 里。
+   * 不管脚本被注入到哪一层，都要能找到那个握着 socket 和 uid 的 window。
+   */
+  function locateApp() {
+    try {
+      if (window.socket && window.uid) return window;
+    } catch (e) {
+      /* 忽略 */
+    }
+    var frames = [];
+    try {
+      var main = document.getElementById('mainFrame');
+      if (main) frames.push(main);
+    } catch (e) {
+      /* 忽略 */
+    }
+    try {
+      frames = frames.concat([].slice.call(document.querySelectorAll('iframe')));
+    } catch (e) {
+      /* 忽略 */
+    }
+    for (var i = 0; i < frames.length; i++) {
+      try {
+        var w = frames[i].contentWindow;
+        if (w && w.socket && w.uid) return w;
+      } catch (e) {
+        // 跨域访问会抛；同源的话不会走到这里
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------- ShadowSee
+
+  function request(path, params) {
+    var qs = [];
+    for (var k in params) {
+      if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null) {
+        qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+      }
+    }
+    var url = apiBase() + path + (qs.length ? '?' + qs.join('&') : '');
+    var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = setTimeout(function () {
+      if (ctrl) ctrl.abort();
+    }, 12000);
+    return fetch(url, {
+      method: 'GET',
+      // 这个接口对 iirose.com 回显了 ACAO，不需要也不该带 cookie
+      credentials: 'omit',
+      headers: { accept: 'application/json' },
+      signal: ctrl ? ctrl.signal : undefined,
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('接口返回 HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (json) {
+        clearTimeout(timer);
+        return json;
+      })
+      .catch(function (err) {
+        clearTimeout(timer);
+        throw err;
+      });
+  }
+
+  /** /cloudsearch 的一条结果 → 面板认得的 Song 形状 */
+  function normalize(song) {
+    var al = song.al || {};
+    var ar = song.ar || [];
+    var names = [];
+    for (var i = 0; i < ar.length; i++) if (ar[i] && ar[i].name) names.push(ar[i].name);
+    var fee = Number(song.fee);
+    return {
+      platform: 'netease',
+      id: String(song.id),
+      title: song.name || '',
+      artists: names,
+      album: al.name || '',
+      durationMs: Number(song.dt) || null,
+      cover: https(al.picUrl),
+      vip: fee === 1 || fee === 4,
+      playable: true, // 只是「搜索结果」，真能不能播由 songUrl 决定
+      url: 'https://music.163.com/song?id=' + song.id,
+    };
+  }
+
+  function search(opts) {
+    var platform = (opts && opts.platform) || 'netease';
+    if (platform !== 'netease') return Promise.reject(new Error('IIROSE 版只接了网易云：' + platform));
+    var keyword = String((opts && opts.keyword) || '').trim();
+    if (!keyword) return Promise.resolve([]);
+    var limit = Math.min(30, Math.max(1, Number(opts.limit) || 20));
+    return request('/cloudsearch', { keywords: keyword, type: 1, limit: limit }).then(function (json) {
+      var songs = (json && json.result && json.result.songs) || [];
+      return songs.map(normalize);
+    });
+  }
+
+  function songUrl(opts) {
+    var id = String((opts && opts.id) || '');
+    if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
+    return request('/song/url/v1', { id: id, level: 'standard' }).then(function (json) {
+      var d = json && json.data && json.data[0];
+      if (!d || !d.url) {
+        return {
+          playable: false,
+          reason: 'no-url',
+          note: '这首拿不到音频（版权锁 / 需要会员），可用「复制指令」让 IIROSE 自己解析',
+        };
+      }
+      return {
+        playable: true,
+        streamUrl: https(d.url),
+        ext: d.type || 'mp3',
+        bitrate: d.br || null,
+        size: d.size || null,
+        expiresInSec: d.expi || null,
+      };
+    });
+  }
+
+  // ------------------------------------------------------------ 发到房间
+
+  /** 点播两帧：先媒体数据（真正入队），再卡片（公屏可见）。返回发出去的内容，方便测试断言。 */
+  function buildFrames(song, info, app) {
+    var color = (app && app.inputcolorhex) || '#ff9800';
+    var artist = (song.artists || []).join(' & ');
+    var cover = https(song.cover || '');
+    var link = song.url || '';
+    var bitrate = Math.round((Number(info && info.bitrate) || 320000) / 1000);
+
+    var media =
+      '&1' +
+      JSON.stringify({
+        s: String(info.streamUrl).slice(4), // https://x → s://x
+        d: Math.round((Number(song.durationMs) || 0) / 1000),
+        c: cover.slice(4),
+        n: song.title,
+        r: artist,
+        b: '@0',
+        o: link.slice(4),
+        l: null,
+      });
+
+    var card =
+      CARD_PREFIX +
+      [enc(song.title), enc(artist), enc(cover), enc(color), bitrate].join('>');
+
+    var payload = { m: card, mc: color, i: msgId() };
+    if (app && app.uid) payload.g = app.uid;
+
+    return [media, JSON.stringify(payload)];
+  }
+
+  function enqueue(song, info) {
+    var app = locateApp();
+    if (!app || !app.socket) {
+      throw new Error('找不到房间连接：请先进房间并确认已登录（F5 之后再试）');
+    }
+    var frames = buildFrames(song, info, app);
+    app.socket.send(frames[0]);
+    app.socket.send(frames[1]);
+    diag.framesSent += 2;
+    diag.lastEnqueue = song.title + (song.artists && song.artists.length ? ' - ' + song.artists[0] : '');
+    observeRoom(app);
+    return { frames: frames, app: app };
+  }
+
+  /** 复制兜底指令：房间不让点播时，用户自己粘到聊天框，交给 IIROSE 自己的解析器 */
+  function copyDirective(song) {
+    var kw = [song.title].concat((song.artists || []).slice(0, 1)).filter(Boolean).join(' ');
+    var text = '@@' + kw;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(function () {
+          return text;
+        });
+      }
+    } catch (e) {
+      /* 掉到下面的兜底 */
+    }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return Promise.resolve(text);
+    } catch (e) {
+      return Promise.reject(new Error('复制失败，请手动输入：' + text));
+    }
+  }
+
+  // ------------------------------------------------------------ 监听房间播放
+
+  var diag = {
+    version: VERSION,
+    mounted: false,
+    state: 'boot',
+    socketOk: false,
+    framesSent: 0,
+    lastError: null,
+    lastEnqueue: null,
+    roomNow: null,
+    api: null,
+  };
+
+  function parseMediaFrame(data) {
+    if (typeof data !== 'string') return null;
+    var i = data.indexOf('&1{');
+    if (i < 0) return null;
+    try {
+      return JSON.parse(data.slice(i + 2));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * 只「观察」不「拦截」：包一层 onmessage，先把消息交给原 handler，再顺手更新面板。
+   * 绝不能返回别的值，否则会把 IIROSE 自己的消息处理搞坏。
+   */
+  function observeRoom(app) {
+    if (!app || !app.socket || app.socket.__mkObserved) return;
+    var orig = app.socket.onmessage;
+    app.socket.onmessage = function (ev) {
+      try {
+        var media = parseMediaFrame(ev && ev.data);
+        if (media && media.n) {
+          var roomArtist = String(media.r || '').replace(/^@\d+/, '');
+          diag.roomNow = media.n + (roomArtist ? ' - ' + roomArtist : '');
+          if (panel) panel.setRoomNow('房间：' + media.n, roomArtist);
+        }
+      } catch (e) {
+        /* 解析失败只影响展示 */
+      }
+      if (typeof orig === 'function') return orig.apply(this, arguments);
+      return undefined;
+    };
+    try {
+      app.socket.__mkObserved = true;
+    } catch (e) {
+      /* 忽略 */
+    }
+    diag.socketOk = true;
+  }
+
+  // ---------------------------------------------------------------- 热键
+
+  function parseHotkey(spec) {
+    var parts = String(spec || 'Alt+T').split('+');
+    var out = { alt: false, ctrl: false, shift: false, meta: false, key: 't' };
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].trim().toLowerCase();
+      if (!p) continue;
+      if (p === 'alt') out.alt = true;
+      else if (p === 'ctrl' || p === 'control') out.ctrl = true;
+      else if (p === 'shift') out.shift = true;
+      else if (p === 'meta' || p === 'cmd') out.meta = true;
+      else out.key = p;
+    }
+    return out;
+  }
+
+  function matchHotkey(ev, spec) {
+    if (!ev || !spec) return false;
+    if (Boolean(ev.altKey) !== spec.alt) return false;
+    if (Boolean(ev.ctrlKey) !== spec.ctrl) return false;
+    if (Boolean(ev.shiftKey) !== spec.shift) return false;
+    if (Boolean(ev.metaKey) !== spec.meta) return false;
+    var code = String(ev.code || '');
+    var key = String(ev.key || '').toLowerCase();
+    return code === 'Key' + spec.key.toUpperCase() || key === spec.key;
+  }
+
+  // ---------------------------------------------------------------- 启动
+
+  var panel = null;
+  var hostEl = null;
+  var ballEl = null;
+
+  function ensureCss(doc) {
+    if (doc.querySelector('style[data-music-iirose]')) return;
+    var style = doc.createElement('style');
+    style.setAttribute('data-music-iirose', '1');
+    style.textContent = [
+      '.mk-iirose-ball{position:fixed;right:18px;bottom:18px;z-index:2147482990;width:52px;height:52px;',
+      'border-radius:50%;border:1px solid #2f6ea8;background:#173a5e;color:#cfe6ff;font-size:18px;',
+      'cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:inherit}',
+      '.mk-iirose-ball:hover{background:#1d4a76}',
+      '.mk-iirose-ball.mk-room{box-shadow:0 0 0 3px rgba(126,224,184,.35),0 8px 24px rgba(0,0,0,.45)}',
+    ].join('\n');
+    (doc.head || doc.documentElement).appendChild(style);
+  }
+
+  function ensurePanel() {
+    if (typeof window.mountMusicPanel !== 'function') {
+      throw new Error('面板没有就绪：构建产物里应该已经包含 panel-ui.js（重新跑 npm run build:iirose）');
+    }
+  }
+
+  function api() {
+    return {
+      platforms: function () {
+        return Promise.resolve([{ id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' }]);
+      },
+      search: search,
+      playurl: songUrl,
+      session: function () {
+        return Promise.resolve({ platform: 'netease', loggedIn: false, nickname: null });
+      },
+      login: function () {
+        return Promise.reject(new Error('IIROSE 版用不到登录：搜索和点播都走平台自己的解析'));
+      },
+      logout: function () {
+        return Promise.resolve({ loggedIn: false });
+      },
+    };
+  }
+
+  function mount() {
+    var doc = document;
+    ensureCss(doc);
+    ensurePanel();
+    hostEl = doc.createElement('div');
+    hostEl.setAttribute('data-music-iirose', 'host');
+    (doc.body || doc.documentElement).appendChild(hostEl);
+
+    var mode = ls(LS.mode, 'room') === 'local' ? 'local' : 'room';
+    panel = window.mountMusicPanel(hostEl, {
+      api: api(),
+      openOnMount: false,
+      version: VERSION,
+      playMode: mode,
+      modeSwitch: true,
+      // IIROSE 版没有「保存登录」这回事，登录按钮只会误导人
+      hideLogin: true,
+      onEnqueue: function (song, info) {
+        enqueue(song, info);
+      },
+      onFallback: copyDirective,
+      onModeChange: function (m) {
+        lsSet(LS.mode, m);
+      },
+    });
+
+    // 悬浮球：浏览器抢走 Alt+T（Firefox 的工具栏）时的兜底入口
+    ballEl = doc.createElement('button');
+    ballEl.className = 'mk-iirose-ball';
+    ballEl.type = 'button';
+    ballEl.title = '点歌台（' + HINT + '）';
+    ballEl.textContent = '♪';
+    ballEl.addEventListener('click', function () {
+      try {
+        panel.toggle();
+      } catch (e) {
+        diag.lastError = String(e && e.message);
+      }
+    });
+    (doc.body || doc.documentElement).appendChild(ballEl);
+
+    var spec = parseHotkey(ls(LS.hotkey, 'Alt+T'));
+    doc.addEventListener(
+      'keydown',
+      function (ev) {
+        if (!matchHotkey(ev, spec)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+          panel.toggle();
+        } catch (e) {
+          diag.lastError = String(e && e.message);
+        }
+      },
+      true,
+    );
+
+    observeRoom(locateApp());
+
+    diag.api = apiBase();
+    diag.mounted = true;
+    diag.state = 'ready';
+    diag.socketOk = Boolean(locateApp());
+    // 留一个抓手：DevTools 里 __MUSIC_IIROSE__.panel.open() 能直接开面板
+    diag.panel = panel;
+    window.__MUSIC_IIROSE__ = diag;
+    log('已就绪 v' + VERSION + '：' + HINT + '；接口=' + diag.api + '；socket=' + diag.socketOk);
+  }
+
+  // 面板源码里已经带了 copyDirective 需要的上下文，但复制指令挂在面板外：
+  // 这里把兜底复制能力也挂到全局，方便 DevTools 里手动救急。
+  window.__musicIroseCopyDirective = copyDirective;
+
+  try {
+    mount();
+  } catch (err) {
+    diag.state = 'error';
+    diag.lastError = String((err && err.message) || err);
+    window.__MUSIC_IIROSE__ = diag;
+    console.error('[music-iirose] 启动失败：' + diag.lastError);
+  }
+})();

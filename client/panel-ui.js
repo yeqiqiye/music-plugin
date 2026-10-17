@@ -142,9 +142,10 @@
       <div class="mk-backdrop"></div>
       <div class="mk-card" role="dialog" aria-label="点歌台">
         <div class="mk-head">
-          <div class="mk-title">点歌台 <span data-el="ver" style="font-size:11px;color:#7ee0b8;font-weight:600"></span> <small>Alt+T 开 / 关 · Esc 关闭 · 点 ▶ 直接播，点行复制歌名</small></div>
+          <div class="mk-title">点歌台 <span data-el="ver" style="font-size:11px;color:#7ee0b8;font-weight:600"></span> <small>Alt+T 开 / 关 · Esc 关闭 · 点 ▶ 播放，点行复制歌名</small></div>
           <div class="mk-right">
-            <button class="mk-btn" data-act="login">登录</button>
+            ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
+            ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost mk-close" data-act="close" title="关闭 (Esc)">✕</button>
           </div>
         </div>
@@ -224,6 +225,8 @@
 
     let platforms = Array.isArray(opts.platforms) && opts.platforms.length ? opts.platforms : PLATFORM_FALLBACK;
     let current = opts.platform || platforms[0].id;
+    // 'local' = 面板自己用 <audio> 放（DSH 版）；'room' = 交给宿主点播到房间（IIROSE 版）
+    let playMode = opts.playMode === 'room' ? 'room' : 'local';
     let session = null;
     let busy = false;
     let lastResults = [];
@@ -235,6 +238,29 @@
     // 版本号显示在标题旁边：刷新后一眼能确认「页面里跑的是新代码」。
     const elVer = $('[data-el=ver]');
     if (elVer && opts.version) elVer.textContent = 'v' + opts.version;
+
+    // 「点播到房间 / 仅本机试听」：只有宿主打开 modeSwitch 才渲染这个按钮。
+    // 房间模式下进度条、音量、时间没有意义（播的是房间播放器），一并收起。
+    const elModeBtn = $('[data-act=mode]');
+    function applyMode() {
+      if (elModeBtn) {
+        elModeBtn.textContent = playMode === 'room' ? '点播到房间' : '仅本机试听';
+        elModeBtn.classList.toggle('mk-primary', playMode === 'room');
+      }
+      const hideInRoom = playMode === 'room';
+      for (const el of [elSeek, elTime, elVol]) {
+        if (el && el.style) el.style.display = hideInRoom ? 'none' : '';
+      }
+    }
+    function notifyMode() {
+      if (typeof opts.onModeChange !== 'function') return;
+      try {
+        opts.onModeChange(playMode);
+      } catch {
+        /* 宿主的持久化失败不影响面板 */
+      }
+    }
+    applyMode();
 
     function renderTabs() {
       elTabs.innerHTML = platforms
@@ -271,6 +297,11 @@
         '" target="_blank" rel="noopener" title="在浏览器搜索这首歌">搜</a>';
       const inQueue = playQueue.some((x) => x.platform === s.platform && x.id === s.id);
       const isCurrent = playCurrent && playCurrent.platform === s.platform && playCurrent.id === s.id;
+      // IIROSE 版的兜底：房间不让点播时，把 `@@歌名 歌手` 复制走，用户自己粘到聊天框
+      const directive =
+        typeof opts.onFallback === 'function'
+          ? `<button data-directive="${i}" title="复制点播指令（房间不支持点播时用）">指令</button>`
+          : '';
       return `<div class="mk-song mk-clickable${isCurrent ? ' mk-playing' : ''}" data-song="${i}" title="点击复制「歌名 - 歌手」">
         <button class="mk-play${isCurrent ? ' mk-busy' : ''}" data-play="${i}" title="直接播放">${isCurrent ? '♪' : '▶'}</button>
         <div class="mk-idx">${i + 1}</div>
@@ -279,6 +310,7 @@
         ${badge}
         <div class="mk-acts">
           <button data-queue="${i}" title="加入播放队列">+ 队列</button>
+          ${directive}
           ${link}${search}
         </div>
       </div>`;
@@ -344,6 +376,15 @@
           setStat('无法直接播放：' + esc(why));
           return { played: false, reason: (info && info.reason) || 'unplayable' };
         }
+        if (playMode === 'room') {
+          // 房间模式：不碰 <audio>（否则会和房间播放器双声），把解析结果交给宿主去发点播帧
+          if (typeof opts.onEnqueue !== 'function') throw new Error('当前环境不支持点播到房间（缺 onEnqueue）');
+          await opts.onEnqueue(song, info);
+          setNow(label, '已点播到房间 · 等房间开始播');
+          setPlayIcon(true);
+          setStat('已点播：' + esc(song.title));
+          return { played: true, mode: 'room' };
+        }
         elAudio.src = info.streamUrl;
         elAudio.load();
         await elAudio.play();
@@ -360,6 +401,16 @@
     }
 
     function togglePlay() {
+      if (playMode === 'room') {
+        // 房间里「播放/暂停」没有意义，这里当成「重发当前这首」
+        const target = playCurrent || lastResults[0];
+        if (!target) {
+          setStat('先搜索，再点 ▶');
+          return;
+        }
+        playSong(target, { enqueue: false });
+        return;
+      }
       if (!elAudio.src) {
         // 还没选歌：拿当前平台第一条结果开播
         if (lastResults[0]) playSong(lastResults[0]);
@@ -406,6 +457,7 @@
     /** 面板状态导出：给自己/测试用，一眼看出播放器在干什么 */
     function playerState() {
       return {
+        mode: playMode,
         queue: playQueue.map((s) => songKey(s)),
         index: playIndex,
         current: playCurrent ? songKey(playCurrent) : null,
@@ -528,11 +580,37 @@
         }
         return;
       }
+      const dirBtn = ev.target.closest('[data-directive]');
+      if (dirBtn) {
+        const s = lastResults[Number(dirBtn.dataset.directive)];
+        if (s && typeof opts.onFallback === 'function') {
+          try {
+            const text = await opts.onFallback(s);
+            setStat('已复制指令「' + esc(text) + '」，粘到聊天框发送即可');
+          } catch (err) {
+            setStat('复制指令失败：' + esc(String((err && err.message) || err)));
+          }
+        }
+        return;
+      }
       const act = ev.target.closest('[data-act]');
       if (act) {
         const name = act.dataset.act;
         if (name === 'close') close();
         else if (name === 'search') doSearch();
+        else if (name === 'mode') {
+          playMode = playMode === 'room' ? 'local' : 'room';
+          if (playMode === 'room') {
+            try {
+              elAudio.pause();
+            } catch {
+              /* 没在放就无所谓 */
+            }
+          }
+          applyMode();
+          notifyMode();
+          setStat(playMode === 'room' ? '已切到「点播到房间」' : '已切到「仅本机试听」');
+        }
         else if (name === 'prev') step(-1);
         else if (name === 'next') step(1);
         else if (name === 'toggle-play') togglePlay();
@@ -640,6 +718,18 @@
       root,
       audio: elAudio,
       setPlatform(id) { current = id; renderTabs(); },
+      /** 宿主（IIROSE 版）可以在运行时切模式，例如读 localStorage 的偏好 */
+      setMode(mode) {
+        playMode = mode === 'room' ? 'room' : 'local';
+        applyMode();
+        notifyMode();
+        return playMode;
+      },
+      getMode: () => playMode,
+      /** 宿主把「房间正在播放」推回面板（IIROSE 版监听 &1 帧后调用） */
+      setRoomNow(text, sub) {
+        setNow(text || '未在播放', sub || '');
+      },
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
       queue: () => playQueue.slice(),

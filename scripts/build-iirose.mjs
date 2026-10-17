@@ -1,0 +1,37 @@
+/**
+ * 构建 iirose/music-iirose.js —— 把面板 UI 内联进 IIROSE 脚本。
+ *
+ * 和 scripts/build.mjs 是同一套手法：面板源码以 JSON 字符串塞进占位符，
+ * 产物是**一个**普通 <script>（不是 ESM、不依赖任何模块加载器），
+ * 因为 IIROSE 的「引用 JS 脚本文件链接」就是直接 <script src> 一把梭。
+ *
+ * 产物要提交进仓库：jsDelivr 只从仓库里取文件，CI 会用 git diff 校验它是否最新。
+ * 因此这里**不能**写构建时间之类每次都会变的东西，否则每次构建都产生假 diff。
+ *
+ * 运行：node scripts/build-iirose.mjs
+ */
+import { readFile, writeFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, '..');
+
+const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+const panelSource = await readFile(join(root, 'client', 'panel-ui.js'), 'utf8');
+const mainSource = await readFile(join(root, 'iirose', 'main.js'), 'utf8');
+
+const banner = `/*! music-iirose v${pkg.version} —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */`;
+
+// 面板源码直接拼在前面，而不是运行时内联 <script> 注入：
+//   · 站点 CSP 经常拦 inline script，但拦不住已经加载成功的 <script src>
+//   · 少一层动态注入，出错时堆栈也更好看
+const bundle = [banner, panelSource, mainSource]
+  .join('\n;')
+  .split('__VERSION__')
+  .join(pkg.version);
+
+await writeFile(join(root, 'iirose', 'music-iirose.js'), banner + '\n' + bundle, 'utf8');
+console.log(
+  'built iirose/music-iirose.js  (' + bundle.length + ' bytes, panel source ' + panelSource.length + ' bytes)',
+);
