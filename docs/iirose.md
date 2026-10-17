@@ -71,10 +71,23 @@
 
 ### 部署（Cloudflare Workers，免费额度足够）
 
-1. Cloudflare 控制台 → Workers & Pages → 新建 Worker；
-2. 把仓库里的 [`relay/worker.js`](../relay/worker.js) 整份内容粘进去，Deploy；
-3. 记下地址，例如 `https://music-relay.你的子域.workers.dev`；
-4. 在 IIROSE 页面按 F12，控制台执行：
+> **先看清楚三件事，能避开 90% 的坑：**
+> 1. 要建的是 **Worker**，不是 **Pages**。Pages 是托管静态站点的，会把你的仓库当站点去 build。
+> 2. **不要填 Git 仓库地址**。中转是一个单文件 Worker，用控制台的在线编辑器粘贴就行；
+>    连 GitHub 的那套（Continue with GitHub → 构建命令 → `wrangler deploy`）是给完整项目用的，
+>    本仓库没有 `wrangler.json`，套上去只会失败。
+> 3. 别把**文章链接**当仓库地址粘进去。日志里出现
+>    `Cloning repository... Failed: error occurred while fetching https://.../posts/...`
+>    就是这一步错了 —— Cloudflare 去 clone 一个 HTML 页面，当然失败。
+
+1. Cloudflare 控制台 → **Workers & Pages** → **Create application** → **Workers** → **Create Worker**
+   （选 "Start with Hello World"，不要选 Pages，也不要选 Continue with GitHub）；
+2. 给个名字（例如 `music-relay`），点 **Deploy**；
+3. 点 **Edit code**（在线编辑器），把仓库里的 [`relay/worker.js`](../relay/worker.js) 整份内容
+   覆盖进去 —— 保留它开头的 `export default { async fetch(request) { ... } }`，再 **Deploy**；
+4. 记下地址，例如 `https://music-relay.你的子域.workers.dev`，浏览器直接打开
+   `https://music-relay.你的子域.workers.dev/health` 应该看到 `{"ok":true,...}`；
+5. 在 IIROSE 页面按 F12，控制台执行：
 
 ```js
 localStorage.setItem('mk_iirose_relay', 'https://music-relay.你的子域.workers.dev');
