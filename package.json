@@ -1,8 +1,8 @@
 {
   "name": "dsh-music-request",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "点歌台：Alt+T 打开面板，在 DSH 内跨平台搜歌（网易云 / 酷狗 / QQ 音乐 / B 站），支持本机保存的登录凭据。",
+  "description": "点歌台：DSH Web 插件（Alt+T 面板，跨平台搜歌）+ IIROSE 用户脚本（一个 JS 链接即可在房间里点播）。",
   "type": "module",
   "main": "lib/index.mjs",
   "exports": {
@@ -18,12 +18,15 @@
   "files": [
     "lib",
     "client",
+    "iirose",
     "cordis.patch.yml",
     "README.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node dev/smoke-client.mjs && node dev/panel-jsdom.mjs",
+    "build:iirose": "node scripts/build-iirose.mjs",
+    "build:all": "node scripts/build.mjs && node scripts/build-iirose.mjs",
+    "test": "node dev/smoke-client.mjs && node dev/panel-jsdom.mjs && node dev/iirose-smoke.mjs",
     "dev:server": "node dev/server.mjs",
     "test:adapters": "node dev/try-adapters.mjs"
   },

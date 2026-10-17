@@ -29,19 +29,27 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # 这个包没有任何运行时依赖（dev 脚本只用 node: 内置模块），不需要 npm install。
+      # 这个包没有任何运行时依赖（dev 脚本只用 node: 内置模块），但两套 DOM 测试要 jsdom。
+      # 两个 jsdom 测试没装 jsdom 会自跳过，那样等于没测；CI 里临时装一份真跑。
+      - name: 临时安装 jsdom（两个 DOM 测试都要）
+        run: npm install --no-save --no-audit --no-fund jsdom
+
       - name: 构建客户端产物
         run: node scripts/build.mjs
 
-      # build.mjs 的产物是提交进仓库的：源码改了却忘了 build，这一步会红。
-      - name: 提交的 lib/client.js 必须与源码一致
-        run: git diff --exit-code -- lib/client.js
+      - name: 构建 IIROSE 脚本产物
+        run: node scripts/build-iirose.mjs
 
-      - name: 面板挂载 + 播放链路 smoke
+      # 两个产物都是提交进仓库的（jsDelivr 只认仓库里的文件）：
+      # 源码改了却忘了 build，这一步会红。
+      - name: 提交的产物必须与源码一致
+        run: git diff --exit-code -- lib/client.js iirose/music-iirose.js
+
+      - name: 面板挂载 + 播放链路 smoke（DSH 版）
         run: node dev/smoke-client.mjs
 
-      # dev/panel-jsdom.mjs 没装 jsdom 会自跳过，那样这个步骤等于没测；CI 里临时装一份真跑。
-      - name: 面板 UI（真实 DOM，临时装 jsdom）
-        run: |
-          npm install --no-save --no-audit --no-fund jsdom
-          node dev/panel-jsdom.mjs
+      - name: 面板 UI（真实 DOM）
+        run: node dev/panel-jsdom.mjs
+
+      - name: IIROSE 点播帧 + 面板流程 smoke
+        run: node dev/iirose-smoke.mjs
