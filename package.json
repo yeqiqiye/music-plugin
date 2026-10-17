@@ -1,0 +1,57 @@
+{
+  "name": "dsh-music-request",
+  "version": "0.1.0",
+  "private": true,
+  "description": "点歌台：Alt+T 打开面板，在 DSH 内跨平台搜歌（网易云 / 酷狗 / QQ 音乐 / B 站），支持本机保存的登录凭据。",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "exports": {
+    ".": {
+      "default": "./lib/index.mjs"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev:server": "node dev/server.mjs",
+    "test:adapters": "node dev/try-adapters.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "music",
+    "music-request",
+    "netease",
+    "kugou",
+    "qqmusic"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-host-webserver": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-host-webserver": { "optional": true }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-ui-slots"],
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

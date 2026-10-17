@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>点歌台 · dev</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1116;color:#e9eef7;
+    font:14px/1.6 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif}
+  .dev{max-width:900px;margin:60px auto;padding:0 20px}
+  .dev h1{font-size:22px;margin:0 0 6px}
+  .dev p{color:#93a1b8}
+  .dev code{background:#1b2432;padding:2px 6px;border-radius:5px}
+</style>
+</head>
+<body>
+  <div class="dev">
+    <h1>点歌台 · 本地开发页</h1>
+    <p>按 <code>Alt+T</code> 开关面板；这个页面只是为了让 UI 能脱离 DSH 快速迭代。</p>
+    <p>数据来自 <code>dev/server.mjs</code> 的 <code>/api/search</code>，与插件 host 路由同一套适配器。</p>
+  </div>
+  <div id="host"></div>
+
+  <script src="/client/panel-ui.js"></script>
+  <script>
+    // dev 版 API：直接打本地 dev server 的 /api/*
+    const devApi = {
+      async post(path, body) {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body || {}),
+        });
+        const out = await res.json();
+        if (!out || out.ok !== true) throw new Error((out && out.error) || ('HTTP ' + res.status));
+        return out.data;
+      },
+      async get(path) {
+        const res = await fetch(path);
+        const out = await res.json();
+        if (!out || out.ok !== true) throw new Error((out && out.error) || ('HTTP ' + res.status));
+        return out.data;
+      },
+      search({ platform, keyword, limit }) {
+        const qs = new URLSearchParams({ platform, kw: keyword, limit: String(limit || 20) });
+        return devApi.get('/api/search?' + qs.toString());
+      },
+      platforms() {
+        return devApi.get('/api/platforms');
+      },
+    };
+
+    const panel = mountMusicPanel(document.getElementById('host'), { api: devApi, openOnMount: true });
+
+    // Alt+T 开关（与插件里同一套逻辑）
+    window.addEventListener(
+      'keydown',
+      (ev) => {
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === 'KeyT') {
+          ev.preventDefault();
+          panel.toggle();
+        }
+      },
+      true,
+    );
+    window.__panel = panel;
+  </script>
+</body>
+</html>

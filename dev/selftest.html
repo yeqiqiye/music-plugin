@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>点歌台 · 自检台</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0e13;color:#e9eef7;
+    font:14px/1.65 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:24px 18px 60px}
+  h1{font-size:21px;margin:0 0 4px}
+  .sub{color:#93a1b8;font-size:13px;margin-bottom:18px}
+  .sub code{background:#1b2432;padding:2px 7px;border-radius:5px;color:#cfe6ff}
+  .box{background:#141a24;border:1px solid #2b3444;border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .box h2{font-size:14px;margin:0 0 10px;color:#cfe6ff;letter-spacing:.3px}
+  .log{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap;word-break:break-all}
+  .ok{color:#7ee0b8} .bad{color:#ff9aa8} .warn{color:#ffd479} .dim{color:#93a1b8}
+  button{background:#173a5e;color:#cfe6ff;border:1px solid #2f6ea8;border-radius:9px;
+    padding:8px 14px;font-size:13px;cursor:pointer;margin-right:8px}
+  button:hover{background:#1d4370}
+  .big{padding:12px 18px;font-size:15px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>点歌台 · 自检台</h1>
+  <div class="sub">
+    这个页面做一件事：<b>用与你 DSH 里完全相同的面板代码</b>，把每一步的结果打出来。
+    按 <code>Alt+T</code> 开关面板（和插件里同一个快捷键）。下面出现红色行就是坏点。
+  </div>
+
+  <div class="box">
+    <h2>1. 环境与自检结果</h2>
+    <div class="log" id="log">跑起来了…</div>
+  </div>
+
+  <div class="box">
+    <h2>2. 手动测试</h2>
+    <button class="big" onclick="openPanel()">打开面板</button>
+    <button class="big" onclick="playFirst()">▶ 直接播第一首</button>
+    <button onclick="runSearch('netease')">搜网易云「晴天」</button>
+    <button onclick="runSearch('qq')">搜 QQ 音乐「晴天」</button>
+    <button onclick="runSearch('kugou')">搜酷狗「晴天」</button>
+    <button onclick="runSearch('bilibili')">搜 B 站「晴天」</button>
+    <button onclick="location.reload()">重跑自检</button>
+  </div>
+
+  <div class="box">
+    <h2>3. 说明</h2>
+    <div class="log dim">搜索走本机 dev server 的 /api/*（端口 3098），与 DSH 插件里的 host 路由是同一套适配器。
+如果你的 DSH 页面上 Alt+T 没反应，把这里的结果告诉我，我就能定位是"代码没加载"还是"按键没送达"还是"接口挂了"。</div>
+  </div>
+</div>
+
+<script src="/client/panel-ui.js"></script>
+<script>
+const logEl = document.getElementById('log');
+const lines = [];
+function log(s, cls) {
+  lines.push('<span class="' + (cls || '') + '">' + s + '</span>');
+  logEl.innerHTML = lines.join('\n');
+}
+function ok(s) { log('  ok    ' + s, 'ok'); }
+function bad(s) { log('  FAIL  ' + s, 'bad'); }
+function warn(s) { log('  warn  ' + s, 'warn'); }
+
+let panel = null;
+
+log('页面 URL      : ' + location.href);
+log('userAgent     : ' + navigator.userAgent);
+log('');
+
+// --- 步骤 1：面板代码是否到位 ---
+if (typeof window.mountMusicPanel === 'function') ok('panel-ui.js 已加载，mountMusicPanel 可用');
+else bad('panel-ui.js 没加载出来（/client/panel-ui.js 404？）');
+
+// --- 步骤 2：dev server 的 API 通不通 ---
+(async () => {
+  try {
+    const res = await fetch('/api/platforms');
+    const j = await res.json();
+    if (j && j.ok) ok('dev API /api/platforms 通，平台数 = ' + j.data.length);
+    else bad('dev API /api/platforms 返回异常：' + JSON.stringify(j).slice(0, 120));
+  } catch (e) {
+    bad('dev API 不通（dev server 没在 3098 上跑？）：' + e.message);
+  }
+
+  // --- 步骤 3：真实搜索一次 ---
+  try {
+    const t0 = Date.now();
+    const res = await fetch('/api/search?platform=qq&kw=' + encodeURIComponent('晴天') + '&limit=2');
+    const j = await res.json();
+    if (j && j.ok && j.data.length) ok('真实搜索成功（QQ 音乐，' + (Date.now() - t0) + 'ms）：' + j.data[0].title + ' / ' + j.data[0].artists.join(','));
+    else bad('搜索返回异常：' + JSON.stringify(j).slice(0, 160));
+  } catch (e) {
+    bad('搜索请求失败：' + e.message);
+  }
+
+  // --- 步骤 4：整条播放链路（这才是有没有"直接播放"的关键）---
+  try {
+    const searchRes = await fetch('/api/search?platform=netease&kw=' + encodeURIComponent('晴天') + '&limit=5');
+    const searchJson = await searchRes.json();
+    let played = false;
+    for (const song of searchJson.data.slice(0, 5)) {
+      const r = await fetch('/api/playurl?platform=' + song.platform + '&id=' + encodeURIComponent(song.id));
+      const j = await r.json();
+      if (j.ok && j.data.playable) {
+        const head = await fetch(j.data.streamUrl, { headers: { Range: 'bytes=0-2047' } });
+        const buf = await head.arrayBuffer();
+        ok('可直连播放：' + song.title + '（' + j.data.ext + ' ' + Math.round((j.data.bitrate || 0) / 1000) + 'k）');
+        ok('  代理返回 HTTP ' + head.status + '，' + buf.byteLength + ' 字节，content-type=' + head.headers.get('content-type'));
+        played = true;
+        break;
+      } else {
+        warn('不可直连：' + song.title + ' → ' + (j.data.reason || '?') + ' / ' + (j.data.note || ''));
+      }
+    }
+    if (!played) bad('这一批结果里没有一首能直连播放的（可能都是 VIP 锁）');
+  } catch (e) {
+    bad('播放链路测试失败：' + e.message);
+  }
+
+  // --- 步骤 5：挂面板 ---
+  try {
+    const host = document.createElement('div');
+    host.id = 'panel-host';
+    document.body.appendChild(host);
+    const api = {
+      async search({ platform, keyword, limit }) {
+        const qs = new URLSearchParams({ platform, kw: keyword, limit: String(limit || 20) });
+        const r = await fetch('/api/search?' + qs);
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        return j.data;
+      },
+      async playurl({ platform, id }) {
+        const qs = new URLSearchParams({ platform, id: String(id) });
+        const r = await fetch('/api/playurl?' + qs);
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        return j.data;
+      },
+      async platforms() { return (await (await fetch('/api/platforms')).json()).data; },
+    };
+    panel = window.mountMusicPanel(host, { api, openOnMount: false, version: 'self-check' });
+    ok('面板已挂载（root 节点存在，classList=' + panel.root.className + '）');
+  } catch (e) {
+    bad('面板挂载抛错：' + e.message);
+  }
+
+  // --- 步骤 5：快捷键监听 ---
+  window.addEventListener('keydown', (ev) => {
+    if (ev.altKey && ev.code === 'KeyT') {
+      log('');
+      ok('收到 Alt+T（说明按键能送达页面）→ 开关面板');
+      if (panel) panel.toggle();
+      if (panel) log('        面板当前 classList = ' + panel.root.className);
+    }
+  }, true);
+  ok('已挂 Alt+T 监听，按一下试试');
+
+  log('');
+  log('自检结束。全绿 = 面板与接口都没问题。', 'ok');
+})();
+
+function openPanel() { if (panel) panel.open(); else bad('面板还没挂上'); }
+async function playFirst() {
+  if (!panel) return bad('面板还没挂上');
+  panel.open();
+  const kw = document.querySelector('[data-el=kw]');
+  if (kw) kw.value = '晴天';
+  const btn = document.querySelector('[data-act=search]');
+  if (btn) btn.click();
+  await new Promise((r) => setTimeout(r, 1200));
+  const first = panel.results()[0];
+  if (!first) return bad('没有搜索结果可播');
+  const out = await panel.play(first);
+  log('play("' + first.title + '") => ' + JSON.stringify(out) + '  状态=' + JSON.stringify(panel.state()), out && out.played ? 'ok' : 'bad');
+}
+async function runSearch(platform) {
+  if (!panel) return bad('面板还没挂上');
+  panel.setPlatform(platform);
+  panel.open();
+  const kw = document.querySelector('[data-el=kw]');
+  if (kw) kw.value = '晴天';
+  const btn = document.querySelector('[data-act=search]');
+  if (btn) btn.click();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# dsh-music-request 的 bundle patch：把自己这一行插进 profile 的层栈。
+# id 必须全局唯一（与包名一致），否则商城/加载器的 entryId 校验会判为缺失。
+- insert:
+    - id: dsh-music-request
+      name: 'dsh-music-request'
