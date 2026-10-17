@@ -72,3 +72,7 @@ node dev/server.mjs               # 本地起 3098，浏览器开 /selftest 看�
 - 播放地址有时效签名：`playurl.mjs` 内存缓存 5 分钟，过期会自动重新解析。
 - 面板与 `shell.overlay` 插槽的耦合很弱（面板是 `document.body` 直属节点），
   插槽注册失败也不会影响 Alt+T。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 yeqiqiye
