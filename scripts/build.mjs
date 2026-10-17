@@ -69,8 +69,13 @@ const bundle = `/**
       return out.data;
     }
     return {
-      search({ platform, keyword, limit }) {
-        const qs = new URLSearchParams({ platform, kw: keyword, limit: String(limit || 20) });
+      search({ platform, keyword, limit, page }) {
+        const qs = new URLSearchParams({
+          platform,
+          kw: keyword,
+          limit: String(limit || 20),
+          page: String(page || 1),
+        });
         return call('/music/api/search?' + qs.toString());
       },
       /** 解析「能不能直接播 / 播哪个同源代理地址」，播放器的唯一入口 */

@@ -11,11 +11,13 @@
 | 能力 | 说明 |
 |---|---|
 | 搜索 | 网易云（经 `api.shadowsee.icu` 的 `/cloudsearch`），带封面、时长、VIP 标记 |
+| 翻页 | 结果底部「‹ 上一页 / 第 N 页 / 下一页 ›」，每页 10/20/30 条可选 |
 | 点播到房间 | 点 ▶ → 服务器收到两帧，歌进房间歌单，公屏出现点播卡片 |
 | 只在本机听 | 面板顶栏切成「仅本机试听」，用 163 的 https 直链本地播，不进房间 |
 | 队列 | 「+ 队列」入列，上一首/下一首按队列走 |
 | 房间状态 | 面板显示「房间正在播放：歌名 - 歌手」（监听 `&1` 媒体帧） |
 | 兜底 | 每行的「指令」按钮复制 `@@歌名 歌手`，房间不让点播时自己粘聊天框 |
+| 酷狗 / B 站 | **需要配一个中转**（见下文），配好后自动多两个 tab |
 
 ## 安装（三步）
 
@@ -41,6 +43,68 @@
 
 进错房间的表现：面板显示「已点播」，但房间里没动静。这时换房间，或点「指令」把
 `@@歌名 歌手` 粘到聊天框试试。
+
+## 翻页
+
+结果列表底部有一条：
+
+```
+‹ 上一页    第 2 页    下一页 ›
+```
+
+- 「每页条数」在搜索框右边的下拉里（10 / 20 / 30），改了之后从第 1 页重新搜；
+- 本页拿满（比如 20 条）才允许「下一页」，拿不满就是到最后一页了；
+- 翻过头会提示「没有更多了」，已经看到的结果不会被清掉。
+
+## 酷狗 / B 站：为什么需要一个中转
+
+直连搜不到，不是漏了，是上游真卡着：
+
+| 平台 | 卡在哪 |
+|---|---|
+| 酷狗 | 搜索接口能 JSONP，但「hash → 播放地址」那个接口**不返回 CORS 头**，浏览器读不到 |
+| B 站 | 搜索/播放地址接口有反爬，裸请求直接 **412 / 403**，必须服务端带 UA + Referer + Cookie |
+| 公共 CORS 代理 | 试过 codetabs / allorigins / corsproxy：前两个 522，最后一个现在要 API key —— 不能当正式方案 |
+
+所以酷狗和 B 站走一个**只中转元数据**的小服务（搜索 + 播放地址，都是几 KB 的 JSON）。
+音频本身：酷狗是 CDN 直链（匿名可取），B 站走中转的 `/stream` 补上 Referer 再吐给播放器。
+
+### 部署（Cloudflare Workers，免费额度足够）
+
+1. Cloudflare 控制台 → Workers & Pages → 新建 Worker；
+2. 把仓库里的 [`relay/worker.js`](../relay/worker.js) 整份内容粘进去，Deploy；
+3. 记下地址，例如 `https://music-relay.你的子域.workers.dev`；
+4. 在 IIROSE 页面按 F12，控制台执行：
+
+```js
+localStorage.setItem('mk_iirose_relay', 'https://music-relay.你的子域.workers.dev');
+location.reload();
+```
+
+刷新后点歌台会多出 **酷狗音乐** 和 **B 站（音频轨）** 两个 tab。没配中转时这两个 tab 不显示。
+
+### 不用 Cloudflare 也行
+
+同一份逻辑能直接跑在 Node 上（`relay/dev-server.mjs`）：
+
+```powershell
+npm run relay                 # 默认 127.0.0.1:8799
+curl "http://127.0.0.1:8799/health"
+```
+
+但页面是 https，直连 `http://127.0.0.1` 会被混合内容拦 —— 要么在外面套一层 https 反代
+（nginx / frp / cloudflared tunnel），要么就用 Workers。**别把没有任何鉴权的它直接开到公网。**
+
+### 接口（想自己实现也行）
+
+```
+GET /search?platform=kugou|bilibili&kw=..&limit=..&page=..   → { ok, data: Song[] }
+GET /playurl?platform=kugou|bilibili&id=..                   → { ok, data: { playable, streamUrl, ext, bitrate } }
+GET /stream?platform=bilibili&url=..                         → 音频字节（Range 透传，补 Referer）
+GET /health                                                  → { ok, platforms }
+```
+
+所有响应都带 `Access-Control-Allow-Origin: *`，不读 cookie，不存任何东西。
 
 ## 热键与模式
 
@@ -143,10 +207,14 @@ jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓�
 
 | 版本 | 内容 |
 |---|---|
+| v0.3.0 | 翻页；酷狗 / B 站（需配中转 `relay/worker.js`）；B 站音频走中转补 Referer |
 | v0.2.0 | 首个 IIROSE 版：搜索、点播两帧、房间播放回显、试听模式、兜底指令 |
 
 ## 已知限制
 
-- 只接网易云音频；房间必须允许点播；播放地址 20 分钟过期。
-- 依赖第三方接口 `api.shadowsee.icu`（可换基址）。
+- 网易云直连可用；**酷狗 / B 站必须配中转**（原因见上）。
+- 房间必须允许点播；播放地址约 20 分钟过期（B 站 `m4s` 也是带签名的）。
+- 依赖第三方接口 `api.shadowsee.icu`（可用 `mk_iirose_api` 换基址）。
 - 房间的「媒体白名单」如果只放行官方平台，外链可能被拒——这时用「指令」兜底。
+- B 站的音频轨是 `m4s`（`application/octet-stream`），个别播放器可能按后缀猜格式；已经能播，
+  但如果遇到某台设备不响，优先换一首或换酷狗源。

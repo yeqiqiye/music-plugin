@@ -101,6 +101,12 @@
   background:var(--mk-input,#1b2432);color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:10px;padding:10px}
 .mk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .mk-warn{background:#3a3320;border:1px solid #6b5a26;color:#ffe6a8;border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:12px}
+.mk-pager{display:none;align-items:center;justify-content:center;gap:10px;padding:8px 16px;border-top:1px solid var(--mk-line,#2b3444);background:#0f161f;font-size:12.5px;color:var(--mk-dim,#93a1b8)}
+.mk-pager.mk-on{display:flex}
+.mk-pager button{font-size:12.5px;color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:8px;
+  padding:4px 10px;background:#1e2836;cursor:pointer;font-family:inherit}
+.mk-pager button:hover:not(:disabled){border-color:#3f6ea8;background:#26344a}
+.mk-pager button:disabled{opacity:.4;cursor:not-allowed}
 @media (max-width:640px){
   .mk-card{width:100vw;height:100vh;border-radius:0}
   .mk-acts{display:none}
@@ -160,6 +166,7 @@
         </div>
         <div class="mk-tabs" data-el="tabs"></div>
         <div class="mk-body" data-el="body"></div>
+        <div class="mk-pager" data-el="pager"></div>
         <div class="mk-player">
           <button class="mk-ctl" data-act="prev" title="上一首">⏮</button>
           <button class="mk-ctl mk-main" data-act="toggle-play" title="播放 / 暂停">▶</button>
@@ -204,6 +211,7 @@
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     });
     const elBody = $('[data-el=body]') || stub();
+    const elPager = $('[data-el=pager]') || stub();
     const elTabs = $('[data-el=tabs]') || stub();
     const elKw = $('[data-el=kw]') || stub();
     const elLimit = $('[data-el=limit]') || stub();
@@ -230,6 +238,9 @@
     let session = null;
     let busy = false;
     let lastResults = [];
+    // 翻页状态：关键词/平台/条数变了就回到第 1 页
+    let page = 1;
+    let lastLimit = 20;
     // 播放器状态（声明放在这里：songRow 在渲染时就要读它们，函数声明会提升、let 不会）
     let playQueue = [];
     let playIndex = -1;
@@ -501,27 +512,65 @@
         </div>`;
     }
 
-    async function doSearch() {
+    /** 翻页条：只在有结果时出现；「下一页」按 lastResults.length < lastLimit 判死 */
+    function renderPager() {
+      if (!elPager.classList) return;
+      if (!lastResults.length) {
+        elPager.innerHTML = '';
+        elPager.classList.remove('mk-on');
+        return;
+      }
+      const more = lastResults.length >= lastLimit;
+      elPager.innerHTML =
+        `<button data-act="page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>‹ 上一页</button>` +
+        `<span>第 ${page} 页</span>` +
+        `<button data-act="page" data-page="${page + 1}" ${more ? '' : 'disabled'}>下一页 ›</button>`;
+      elPager.classList.add('mk-on');
+    }
+
+    async function doSearch(nextPage) {
       if (busy) return;
       const kw = elKw.value.trim();
       if (!kw) {
         elBody.innerHTML = '<div class="mk-empty">先输入歌名或歌手</div>';
+        elPager.innerHTML = '';
+        elPager.classList.remove('mk-on');
         return;
       }
+      // 换了关键词/平台就从第 1 页开始；只有显式给页码才翻页
+      const target = Number(nextPage) || 1;
+      const limit = Number(elLimit.value) || 20;
       busy = true;
-      setStat('<span class="mk-load"></span> 正在搜 ' + esc(labelOf(current)));
+      setStat('<span class="mk-load"></span> 正在搜 ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));
       elBody.innerHTML = '<div class="mk-empty">搜索中…</div>';
       try {
-        const data = await api.search({ platform: current, keyword: kw, limit: Number(elLimit.value) || 20 });
-        lastResults = data || [];
-        if (!lastResults.length) {
-          elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
-          setStat('0 条 · ' + esc(labelOf(current)));
+        const data = await api.search({ platform: current, keyword: kw, limit, page: target });
+        const list = data || [];
+        if (!list.length) {
+          if (target > 1) {
+            // 翻过头了：留在原页，别把用户已经看到的结果清掉
+            setStat('没有更多了 · 第 ' + page + ' 页');
+            elBody.innerHTML =
+              '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
+              lastResults.map(songRow).join('');
+            renderPager();
+          } else {
+            lastResults = [];
+            page = 1;
+            lastLimit = limit;
+            elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
+            setStat('0 条 · ' + esc(labelOf(current)));
+            renderPager();
+          }
         } else {
+          lastResults = list;
+          page = target;
+          lastLimit = limit;
           elBody.innerHTML =
             '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
             lastResults.map(songRow).join('');
-          setStat(lastResults.length + ' 条 · ' + esc(labelOf(current)));
+          setStat(lastResults.length + ' 条 · 第 ' + page + ' 页 · ' + esc(labelOf(current)));
+          renderPager();
         }
       } catch (err) {
         elBody.innerHTML = '';
@@ -598,6 +647,7 @@
         const name = act.dataset.act;
         if (name === 'close') close();
         else if (name === 'search') doSearch();
+        else if (name === 'page') doSearch(Number(act.dataset.page));
         else if (name === 'mode') {
           playMode = playMode === 'room' ? 'local' : 'room';
           if (playMode === 'room') {

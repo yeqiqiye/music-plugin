@@ -1,4 +1,4 @@
-/**
+﻿/**
  * IIROSE 版点歌台的离线冒烟：在 jsdom 里跑真正的 iirose/music-iirose.js。
  *
  * 覆盖：载入幂等 → 挂载 → Alt+T 开关 → 搜索归一化 → 点 ▶ 发出的两帧（逐字段断言）
@@ -33,17 +33,29 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
 const sent = [];
 const requested = [];
 
+const song = (id, name, album, dt, fee, cover) => ({
+  id,
+  name,
+  ar: [{ name: '周杰伦' }],
+  al: { name: album, picUrl: cover },
+  dt,
+  fee,
+});
 const SEARCH_FIXTURE = {
   result: {
+    songs: [song(1901371647, '晴天', '叶惠美', 278961, 8, 'http://p3.music.126.net/cover-abc.jpg')].concat(
+      // 凑满 20 条：翻页按钮的「下一页」是按「本页条数 >= limit」判活的
+      Array.from({ length: 19 }, (_, i) => song(3000000000 + i, '歌' + (i + 1), '专辑', 200000, 0, '')),
+    ),
+  },
+};
+// 第 2 页给一批完全不同的歌，用来证明 offset 真的生效了
+const SEARCH_PAGE2 = {
+  result: {
     songs: [
-      {
-        id: 1901371647,
-        name: '晴天',
-        ar: [{ name: '周杰伦' }],
-        al: { name: '叶惠美', picUrl: 'http://p3.music.126.net/cover-abc.jpg' },
-        dt: 278961,
-        fee: 8,
-      },
+      song(2000000001, '七里香', '七里香', 299000, 1, ''),
+      song(2000000002, '夜曲', '十一月的萧邦', 250000, 1, ''),
+      song(2000000003, '龙卷风', 'Jay', 240000, 0, ''),
     ],
   },
 };
@@ -51,10 +63,36 @@ const URL_FIXTURE = {
   data: [{ id: 1901371647, url: 'http://m702.music.126.net/x/y/track.mp3', br: 128012, size: 481115, type: 'mp3', expi: 1200 }],
 };
 
+// 中转（酷狗）的夹具
+const KUGOU_SONG = {
+  platform: 'kugou',
+  id: '48C685F679FFC7CF08B8A8341CA9DB44',
+  title: '晴天',
+  artists: ['蓝心羽'],
+  album: '网瘾少女叽',
+  durationMs: 176000,
+  cover: '',
+  vip: false,
+  playable: true,
+  url: 'https://www.kugou.com/mixsong/abc.html',
+};
+
 function route(url) {
   requested.push(String(url));
-  if (String(url).includes('/cloudsearch')) return SEARCH_FIXTURE;
-  if (String(url).includes('/song/url')) return URL_FIXTURE;
+  const u = String(url);
+  if (u.includes('relay.example.com/search')) {
+    return { ok: true, data: [KUGOU_SONG] };
+  }
+  if (u.includes('relay.example.com/playurl')) {
+    return {
+      ok: true,
+      data: { playable: true, streamUrl: 'https://sharefs.kugou.com/x/track.mp3', ext: 'mp3', bitrate: 128000 },
+    };
+  }
+  if (u.includes('/cloudsearch')) {
+    return u.includes('offset=20') ? SEARCH_PAGE2 : SEARCH_FIXTURE;
+  }
+  if (u.includes('/song/url')) return URL_FIXTURE;
   throw new Error('测试里没预料到的请求：' + url);
 }
 
@@ -92,6 +130,9 @@ Object.defineProperty(window.navigator, 'clipboard', {
   },
   configurable: true,
 });
+
+// 先配好中转，面板才会列出酷狗 / B 站
+window.localStorage.setItem('mk_iirose_relay', 'https://relay.example.com');
 
 const code = readFileSync(join(root, 'iirose', 'music-iirose.js'), 'utf8');
 const run = () => vm.runInContext(code, dom.getInternalVMContext(), { filename: 'music-iirose.js' });
@@ -135,7 +176,7 @@ panelEl.querySelector('[data-act=search]').dispatchEvent(new window.MouseEvent('
 await tick(60);
 
 const rows = panelEl.querySelectorAll('.mk-song');
-check('搜索后渲染 1 行结果', rows.length === 1);
+check('搜索后渲染 20 行结果', rows.length === 20, String(rows.length));
 check('请求打到了 /cloudsearch', requested.some((u) => u.includes('/cloudsearch')), requested[0] || '');
 check('VIP 标记（fee=8 不算 VIP）出现「可听」', panelEl.innerHTML.includes('可听'));
 
@@ -206,6 +247,59 @@ check('试听模式把 https 直链给了 <audio>', String(audio.src).includes('
 panelEl.querySelector('[data-directive]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick(20);
 check('「指令」按钮复制到剪贴板', clipboardText === '@@晴天 周杰伦', String(clipboardText));
+
+// ---------------- 8. 翻页 ----------------
+panelEl.querySelector('[data-act=search]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+const pager = panelEl.querySelector('[data-el=pager]');
+check('结果出来后出现翻页条', pager.classList.contains('mk-on'));
+check('第 1 页的「上一页」是禁用的', pager.querySelector('[data-page="0"]').disabled === true);
+
+pager.querySelector('[data-page="2"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+check('翻页请求带上了 offset=20', requested.some((u) => u.includes('offset=20')));
+check('第 2 页渲染了另一批歌（七里香）', panelEl.innerHTML.includes('七里香'));
+const statText = panelEl.querySelector('[data-el=stat]').textContent;
+check('状态栏显示「第 2 页」', /第 2 页/.test(statText), statText);
+check('只剩 3 条时「下一页」禁用', panelEl.querySelector('[data-el=pager] [data-page="3"]').disabled === true);
+
+// ---------------- 9. 配了中转之后：酷狗 ----------------
+check('中转地址进了诊断', String(diag.relay || '').includes('relay.example.com'), String(diag.relay));
+const tabCount = panelEl.querySelectorAll('.mk-tab').length;
+check('平台 tab 变成 3 个（网易云 + 酷狗 + B 站）', tabCount === 3, String(tabCount));
+
+// 切回「点播到房间」再试
+panelEl.querySelector('[data-act=mode]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+panelEl.querySelectorAll('.mk-tab')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(80);
+check(
+  '酷狗搜索打到了中转',
+  requested.some((u) => u.includes('relay.example.com/search') && u.includes('platform=kugou')),
+  requested.filter((u) => u.includes('relay')).slice(-1)[0] || '',
+);
+
+const framesBefore = sent.length;
+panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(80);
+check('酷狗点播也发 2 帧', sent.length === framesBefore + 2, String(sent.length - framesBefore));
+
+let kgMedia = null;
+try {
+  kgMedia = JSON.parse(String(sent[framesBefore]).slice(2));
+} catch {
+  kgMedia = null;
+}
+check('酷狗媒体帧 b=@4', kgMedia && kgMedia.b === '@4', kgMedia && String(kgMedia.b));
+check('酷狗音频来自中转给的地址', kgMedia && String(kgMedia.s).includes('sharefs.kugou.com'), kgMedia && String(kgMedia.s));
+
+let kgCard = null;
+try {
+  kgCard = JSON.parse(String(sent[framesBefore + 1]));
+} catch {
+  kgCard = null;
+}
+check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m__4@4>'), kgCard && String(kgCard.m).slice(0, 22));
 
 console.log('');
 if (failures.length) {

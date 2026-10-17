@@ -1,5 +1,5 @@
-/*! music-iirose v0.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -103,6 +103,12 @@
   background:var(--mk-input,#1b2432);color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:10px;padding:10px}
 .mk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .mk-warn{background:#3a3320;border:1px solid #6b5a26;color:#ffe6a8;border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:12px}
+.mk-pager{display:none;align-items:center;justify-content:center;gap:10px;padding:8px 16px;border-top:1px solid var(--mk-line,#2b3444);background:#0f161f;font-size:12.5px;color:var(--mk-dim,#93a1b8)}
+.mk-pager.mk-on{display:flex}
+.mk-pager button{font-size:12.5px;color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:8px;
+  padding:4px 10px;background:#1e2836;cursor:pointer;font-family:inherit}
+.mk-pager button:hover:not(:disabled){border-color:#3f6ea8;background:#26344a}
+.mk-pager button:disabled{opacity:.4;cursor:not-allowed}
 @media (max-width:640px){
   .mk-card{width:100vw;height:100vh;border-radius:0}
   .mk-acts{display:none}
@@ -162,6 +168,7 @@
         </div>
         <div class="mk-tabs" data-el="tabs"></div>
         <div class="mk-body" data-el="body"></div>
+        <div class="mk-pager" data-el="pager"></div>
         <div class="mk-player">
           <button class="mk-ctl" data-act="prev" title="上一首">⏮</button>
           <button class="mk-ctl mk-main" data-act="toggle-play" title="播放 / 暂停">▶</button>
@@ -206,6 +213,7 @@
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     });
     const elBody = $('[data-el=body]') || stub();
+    const elPager = $('[data-el=pager]') || stub();
     const elTabs = $('[data-el=tabs]') || stub();
     const elKw = $('[data-el=kw]') || stub();
     const elLimit = $('[data-el=limit]') || stub();
@@ -232,6 +240,9 @@
     let session = null;
     let busy = false;
     let lastResults = [];
+    // 翻页状态：关键词/平台/条数变了就回到第 1 页
+    let page = 1;
+    let lastLimit = 20;
     // 播放器状态（声明放在这里：songRow 在渲染时就要读它们，函数声明会提升、let 不会）
     let playQueue = [];
     let playIndex = -1;
@@ -503,27 +514,65 @@
         </div>`;
     }
 
-    async function doSearch() {
+    /** 翻页条：只在有结果时出现；「下一页」按 lastResults.length < lastLimit 判死 */
+    function renderPager() {
+      if (!elPager.classList) return;
+      if (!lastResults.length) {
+        elPager.innerHTML = '';
+        elPager.classList.remove('mk-on');
+        return;
+      }
+      const more = lastResults.length >= lastLimit;
+      elPager.innerHTML =
+        `<button data-act="page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>‹ 上一页</button>` +
+        `<span>第 ${page} 页</span>` +
+        `<button data-act="page" data-page="${page + 1}" ${more ? '' : 'disabled'}>下一页 ›</button>`;
+      elPager.classList.add('mk-on');
+    }
+
+    async function doSearch(nextPage) {
       if (busy) return;
       const kw = elKw.value.trim();
       if (!kw) {
         elBody.innerHTML = '<div class="mk-empty">先输入歌名或歌手</div>';
+        elPager.innerHTML = '';
+        elPager.classList.remove('mk-on');
         return;
       }
+      // 换了关键词/平台就从第 1 页开始；只有显式给页码才翻页
+      const target = Number(nextPage) || 1;
+      const limit = Number(elLimit.value) || 20;
       busy = true;
-      setStat('<span class="mk-load"></span> 正在搜 ' + esc(labelOf(current)));
+      setStat('<span class="mk-load"></span> 正在搜 ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));
       elBody.innerHTML = '<div class="mk-empty">搜索中…</div>';
       try {
-        const data = await api.search({ platform: current, keyword: kw, limit: Number(elLimit.value) || 20 });
-        lastResults = data || [];
-        if (!lastResults.length) {
-          elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
-          setStat('0 条 · ' + esc(labelOf(current)));
+        const data = await api.search({ platform: current, keyword: kw, limit, page: target });
+        const list = data || [];
+        if (!list.length) {
+          if (target > 1) {
+            // 翻过头了：留在原页，别把用户已经看到的结果清掉
+            setStat('没有更多了 · 第 ' + page + ' 页');
+            elBody.innerHTML =
+              '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
+              lastResults.map(songRow).join('');
+            renderPager();
+          } else {
+            lastResults = [];
+            page = 1;
+            lastLimit = limit;
+            elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
+            setStat('0 条 · ' + esc(labelOf(current)));
+            renderPager();
+          }
         } else {
+          lastResults = list;
+          page = target;
+          lastLimit = limit;
           elBody.innerHTML =
             '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
             lastResults.map(songRow).join('');
-          setStat(lastResults.length + ' 条 · ' + esc(labelOf(current)));
+          setStat(lastResults.length + ' 条 · 第 ' + page + ' 页 · ' + esc(labelOf(current)));
+          renderPager();
         }
       } catch (err) {
         elBody.innerHTML = '';
@@ -600,6 +649,7 @@
         const name = act.dataset.act;
         if (name === 'close') close();
         else if (name === 'search') doSearch();
+        else if (name === 'page') doSearch(Number(act.dataset.page));
         else if (name === 'mode') {
           playMode = playMode === 'room' ? 'local' : 'room';
           if (playMode === 'room') {
@@ -744,7 +794,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = { mountMusicPanel };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-;/**
+;﻿/**
  * IIROSE 版点歌台 —— 源码（产物是 iirose/music-iirose.js，别直接引用这个文件）。
  *
  * 和 DSH 版的区别，一句话：这里没有 Node 半侧。
@@ -763,7 +813,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.2.0';
+  var VERSION = '0.3.0';
 
   // 幂等：同一个页面被重复注入（改 URL 后没刷新、脚本列表里贴了两遍）时不挂第二套。
   if (window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.mounted) return;
@@ -776,8 +826,8 @@
     api: 'mk_iirose_api',
     hotkey: 'mk_iirose_hotkey',
     mode: 'mk_iirose_mode',
+    relay: 'mk_iirose_relay',
   };
-  var CARD_PREFIX = 'm__4@0>'; // @0 = 网易云
   var HINT = 'Alt+T 开 / 关 · 点 ▶ 发到房间';
 
   // ---------------------------------------------------------------- 小工具
@@ -864,23 +914,30 @@
     return null;
   }
 
-  // ---------------------------------------------------------------- ShadowSee
+  // ---------------------------------------------------------------- 出站请求
 
-  function request(path, params) {
-    var qs = [];
+  function qs(params) {
+    var out = [];
     for (var k in params) {
       if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null) {
-        qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+        out.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
       }
     }
-    var url = apiBase() + path + (qs.length ? '?' + qs.join('&') : '');
+    return out.length ? '?' + out.join('&') : '';
+  }
+
+  /**
+   * base 可以显式给（中转地址），不给就用 ShadowSee。
+   * 两个上游都只是 JSON 接口，几 KB，不需要 cookie。
+   */
+  function request(path, params, base) {
+    var url = (base || apiBase()) + path + qs(params);
     var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     var timer = setTimeout(function () {
       if (ctrl) ctrl.abort();
     }, 12000);
     return fetch(url, {
       method: 'GET',
-      // 这个接口对 iirose.com 回显了 ACAO，不需要也不该带 cookie
       credentials: 'omit',
       headers: { accept: 'application/json' },
       signal: ctrl ? ctrl.signal : undefined,
@@ -898,6 +955,16 @@
         throw err;
       });
   }
+
+  /** 中转（可选）：配了这个才有酷狗 / B 站 */
+  function relayBase() {
+    var raw = String(ls(LS.relay, '') || '').trim().replace(/\/+$/, '');
+    if (!raw) return '';
+    return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+  }
+
+  // 点播卡片/媒体帧里的平台标记（对端客户端据此显示图标）
+  var TYPE_MARK = { netease: '@0', kugou: '@4', bilibili: '=0' };
 
   /** /cloudsearch 的一条结果 → 面板认得的 Song 形状 */
   function normalize(song) {
@@ -922,19 +989,49 @@
 
   function search(opts) {
     var platform = (opts && opts.platform) || 'netease';
-    if (platform !== 'netease') return Promise.reject(new Error('IIROSE 版只接了网易云：' + platform));
     var keyword = String((opts && opts.keyword) || '').trim();
     if (!keyword) return Promise.resolve([]);
     var limit = Math.min(30, Math.max(1, Number(opts.limit) || 20));
-    return request('/cloudsearch', { keywords: keyword, type: 1, limit: limit }).then(function (json) {
+    var page = Math.max(1, Number((opts && opts.page) || 1));
+
+    if (platform !== 'netease') {
+      var base = relayBase();
+      if (!base) {
+        return Promise.reject(new Error('「' + platform + '」要走中转：先配 mk_iirose_relay（见 docs/iirose.md）'));
+      }
+      return request('/search', { platform: platform, kw: keyword, limit: limit, page: page }, base).then(function (out) {
+        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+        return out.data || [];
+      });
+    }
+
+    return request('/cloudsearch', {
+      keywords: keyword,
+      type: 1,
+      limit: limit,
+      offset: (page - 1) * limit,
+    }).then(function (json) {
       var songs = (json && json.result && json.result.songs) || [];
       return songs.map(normalize);
     });
   }
 
   function songUrl(opts) {
+    var platform = (opts && opts.platform) || 'netease';
     var id = String((opts && opts.id) || '');
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
+
+    if (platform !== 'netease') {
+      var base = relayBase();
+      if (!base) {
+        return Promise.resolve({ playable: false, reason: 'need-relay', note: '这个平台要走中转：先配 mk_iirose_relay' });
+      }
+      return request('/playurl', { platform: platform, id: id }, base).then(function (out) {
+        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+        return out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
+      });
+    }
+
     return request('/song/url/v1', { id: id, level: 'standard' }).then(function (json) {
       var d = json && json.data && json.data[0];
       if (!d || !d.url) {
@@ -964,6 +1061,8 @@
     var cover = https(song.cover || '');
     var link = song.url || '';
     var bitrate = Math.round((Number(info && info.bitrate) || 320000) / 1000);
+    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站用通用音乐 =0
+    var mark = TYPE_MARK[song.platform] || '@0';
 
     var media =
       '&1' +
@@ -973,13 +1072,15 @@
         c: cover.slice(4),
         n: song.title,
         r: artist,
-        b: '@0',
+        b: mark,
         o: link.slice(4),
         l: null,
       });
 
     var card =
-      CARD_PREFIX +
+      'm__4' +
+      mark +
+      '>' +
       [enc(song.title), enc(artist), enc(cover), enc(color), bitrate].join('>');
 
     var payload = { m: card, mc: color, i: msgId() };
@@ -1139,7 +1240,13 @@
   function api() {
     return {
       platforms: function () {
-        return Promise.resolve([{ id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' }]);
+        var list = [{ id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' }];
+        // 酷狗 / B 站要中转才可用；没配就不显示 tab，免得点进去只看到报错
+        if (relayBase()) {
+          list.push({ id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' });
+          list.push({ id: 'bilibili', label: 'B 站（音频轨）', home: 'https://www.bilibili.com/' });
+        }
+        return Promise.resolve(list);
       },
       search: search,
       playurl: songUrl,
@@ -1215,6 +1322,7 @@
     observeRoom(locateApp());
 
     diag.api = apiBase();
+    diag.relay = relayBase();
     diag.mounted = true;
     diag.state = 'ready';
     diag.socketOk = Boolean(locateApp());

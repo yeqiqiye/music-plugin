@@ -95,7 +95,11 @@ https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v0.2.0/iirose/music-iirose.
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，
-搜歌点 ▶ —— 歌会进房间歌单，所有人都听得到。
+搜歌点 ▶ —— 歌会进房间歌单，所有人都听得到。结果多的时候底部有「上一页 / 下一页」。
+
+想连**酷狗 / B 站**：这两个平台浏览器直连被 CORS/反爬挡住，需要一个只中转元数据的小服务。
+仓库里给了现成的 [`relay/worker.js`](relay/worker.js)（Cloudflare Worker，粘上去就能用），
+配好后 `localStorage.setItem('mk_iirose_relay', 'https://你的地址')` 刷新即多两个 tab。
 
 细节、房间要求、失败兜底、换接口基址 → [docs/iirose.md](docs/iirose.md)
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * IIROSE 版点歌台 —— 源码（产物是 iirose/music-iirose.js，别直接引用这个文件）。
  *
  * 和 DSH 版的区别，一句话：这里没有 Node 半侧。
@@ -30,8 +30,8 @@
     api: 'mk_iirose_api',
     hotkey: 'mk_iirose_hotkey',
     mode: 'mk_iirose_mode',
+    relay: 'mk_iirose_relay',
   };
-  var CARD_PREFIX = 'm__4@0>'; // @0 = 网易云
   var HINT = 'Alt+T 开 / 关 · 点 ▶ 发到房间';
 
   // ---------------------------------------------------------------- 小工具
@@ -118,23 +118,30 @@
     return null;
   }
 
-  // ---------------------------------------------------------------- ShadowSee
+  // ---------------------------------------------------------------- 出站请求
 
-  function request(path, params) {
-    var qs = [];
+  function qs(params) {
+    var out = [];
     for (var k in params) {
       if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null) {
-        qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+        out.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
       }
     }
-    var url = apiBase() + path + (qs.length ? '?' + qs.join('&') : '');
+    return out.length ? '?' + out.join('&') : '';
+  }
+
+  /**
+   * base 可以显式给（中转地址），不给就用 ShadowSee。
+   * 两个上游都只是 JSON 接口，几 KB，不需要 cookie。
+   */
+  function request(path, params, base) {
+    var url = (base || apiBase()) + path + qs(params);
     var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     var timer = setTimeout(function () {
       if (ctrl) ctrl.abort();
     }, 12000);
     return fetch(url, {
       method: 'GET',
-      // 这个接口对 iirose.com 回显了 ACAO，不需要也不该带 cookie
       credentials: 'omit',
       headers: { accept: 'application/json' },
       signal: ctrl ? ctrl.signal : undefined,
@@ -152,6 +159,16 @@
         throw err;
       });
   }
+
+  /** 中转（可选）：配了这个才有酷狗 / B 站 */
+  function relayBase() {
+    var raw = String(ls(LS.relay, '') || '').trim().replace(/\/+$/, '');
+    if (!raw) return '';
+    return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+  }
+
+  // 点播卡片/媒体帧里的平台标记（对端客户端据此显示图标）
+  var TYPE_MARK = { netease: '@0', kugou: '@4', bilibili: '=0' };
 
   /** /cloudsearch 的一条结果 → 面板认得的 Song 形状 */
   function normalize(song) {
@@ -176,19 +193,49 @@
 
   function search(opts) {
     var platform = (opts && opts.platform) || 'netease';
-    if (platform !== 'netease') return Promise.reject(new Error('IIROSE 版只接了网易云：' + platform));
     var keyword = String((opts && opts.keyword) || '').trim();
     if (!keyword) return Promise.resolve([]);
     var limit = Math.min(30, Math.max(1, Number(opts.limit) || 20));
-    return request('/cloudsearch', { keywords: keyword, type: 1, limit: limit }).then(function (json) {
+    var page = Math.max(1, Number((opts && opts.page) || 1));
+
+    if (platform !== 'netease') {
+      var base = relayBase();
+      if (!base) {
+        return Promise.reject(new Error('「' + platform + '」要走中转：先配 mk_iirose_relay（见 docs/iirose.md）'));
+      }
+      return request('/search', { platform: platform, kw: keyword, limit: limit, page: page }, base).then(function (out) {
+        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+        return out.data || [];
+      });
+    }
+
+    return request('/cloudsearch', {
+      keywords: keyword,
+      type: 1,
+      limit: limit,
+      offset: (page - 1) * limit,
+    }).then(function (json) {
       var songs = (json && json.result && json.result.songs) || [];
       return songs.map(normalize);
     });
   }
 
   function songUrl(opts) {
+    var platform = (opts && opts.platform) || 'netease';
     var id = String((opts && opts.id) || '');
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
+
+    if (platform !== 'netease') {
+      var base = relayBase();
+      if (!base) {
+        return Promise.resolve({ playable: false, reason: 'need-relay', note: '这个平台要走中转：先配 mk_iirose_relay' });
+      }
+      return request('/playurl', { platform: platform, id: id }, base).then(function (out) {
+        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+        return out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
+      });
+    }
+
     return request('/song/url/v1', { id: id, level: 'standard' }).then(function (json) {
       var d = json && json.data && json.data[0];
       if (!d || !d.url) {
@@ -218,6 +265,8 @@
     var cover = https(song.cover || '');
     var link = song.url || '';
     var bitrate = Math.round((Number(info && info.bitrate) || 320000) / 1000);
+    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站用通用音乐 =0
+    var mark = TYPE_MARK[song.platform] || '@0';
 
     var media =
       '&1' +
@@ -227,13 +276,15 @@
         c: cover.slice(4),
         n: song.title,
         r: artist,
-        b: '@0',
+        b: mark,
         o: link.slice(4),
         l: null,
       });
 
     var card =
-      CARD_PREFIX +
+      'm__4' +
+      mark +
+      '>' +
       [enc(song.title), enc(artist), enc(cover), enc(color), bitrate].join('>');
 
     var payload = { m: card, mc: color, i: msgId() };
@@ -393,7 +444,13 @@
   function api() {
     return {
       platforms: function () {
-        return Promise.resolve([{ id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' }]);
+        var list = [{ id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' }];
+        // 酷狗 / B 站要中转才可用；没配就不显示 tab，免得点进去只看到报错
+        if (relayBase()) {
+          list.push({ id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' });
+          list.push({ id: 'bilibili', label: 'B 站（音频轨）', home: 'https://www.bilibili.com/' });
+        }
+        return Promise.resolve(list);
       },
       search: search,
       playurl: songUrl,
@@ -469,6 +526,7 @@
     observeRoom(locateApp());
 
     diag.api = apiBase();
+    diag.relay = relayBase();
     diag.mounted = true;
     diag.state = 'ready';
     diag.socketOk = Boolean(locateApp());
