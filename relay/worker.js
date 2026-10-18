@@ -228,7 +228,7 @@ const PLATFORMS = {
   bilibili: { search: bilibiliSearch, playurl: bilibiliPlayUrl },
 };
 
-export default {
+export const worker = {
   async fetch(request) {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
@@ -238,6 +238,12 @@ export default {
     const impl = PLATFORMS[platform];
 
     try {
+      // 先判路径再判平台：不然后面「不支持的平台」会把未知路径也说成 400
+      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playurl', '/stream'];
+      if (!KNOWN_PATHS.includes(url.pathname)) {
+        return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
+      }
+
       // 根路径给个说明书：直接拿 workers.dev 地址在浏览器里打开时，
       // 以前会看到 {"ok":false,"error":"不支持的平台："}，看着像部署失败
       if (url.pathname === '/' || url.pathname === '') {
@@ -291,3 +297,5 @@ export default {
     }
   },
 };
+
+export default worker;

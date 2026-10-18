@@ -96,6 +96,39 @@ location.reload();
 
 刷新后点歌台会多出 **酷狗音乐** 和 **B 站（音频轨）** 两个 tab。没配中转时这两个 tab 不显示。
 
+> ⚠️ `*.workers.dev` 在部分网络（尤其国内）会被 DNS 污染，解析到一个不相干的 IP、连接超时。
+> 表现是：Cloudflare 控制台里预览正常，但你自己浏览器打不开 `/health`。这时候别怀疑代码，
+> 走下面「国内云函数」或者给 Worker 绑一个自己的域名。
+
+### 国内云函数（不绑域名也能用）
+
+Cloudflare 的 `workers.dev` 打不开时，同一份逻辑可以直接跑在阿里云函数计算 FC 或腾讯云 SCF 上，
+默认域名国内可达、不用备案。用构建好的单文件产物：[`relay/serverless.js`](../relay/serverless.js)
+（= `relay/worker.js` + `relay/serverless-adapter.js`，`npm run build:relay` 生成）。
+
+#### 阿里云函数计算 FC（推荐，步骤最少）
+
+1. 函数计算控制台 → **函数** → **创建函数** → **事件函数**；
+2. 运行环境选 **Node.js 20**，请求处理程序填 `index.handler`；
+3. 代码编辑器里新建 / 覆盖 `index.mjs`，把 [`relay/serverless.js`](../relay/serverless.js) 全部粘进去
+   （**文件名必须是 `.mjs`**，因为它是 ES Module）；
+4. 部署代码 → 函数详情 → **配置 → 触发器** → 创建 **HTTP 触发器**（认证方式：**无需认证**）；
+5. 拿到形如 `https://xxxx.cn-hangzhou.fcapp.run` 的地址，浏览器打开
+   `https://xxxx.cn-hangzhou.fcapp.run/health`，看到 `{"ok":true,...}` 就成了；
+6. IIROSE 里 `localStorage.setItem('mk_iirose_relay', 'https://xxxx.cn-hangzhou.fcapp.run')` + 刷新。
+
+#### 腾讯云 SCF（API 网关触发器）
+
+1. 云函数 → 新建 → **Node.js 20** → 运行角色默认即可；
+2. 函数代码里新建 `index.mjs`，粘贴 [`relay/serverless.js`](../relay/serverless.js)；
+   请求处理程序填 `index.main_handler`；
+3. 触发管理 → 创建触发器 → **API 网关** → 勾选 **集成响应**；
+4. 用给出的 `https://service-xxxx.gz.apigw.tencentcs.com/release/` 访问 `/health`；
+5. 同样把它写进 `mk_iirose_relay`。
+
+> 云函数的响应是「先收全再返回」，所以 B 站音频要靠 Range 分段，单个响应太大会被平台掐断
+> （SCF 约 6MB、FC 16MB）。正常播放器都是分段请求，一般没事；真遇到大文件失败，换酷狗源。
+
 ### 不用 Cloudflare 也行
 
 同一份逻辑能直接跑在 Node 上（`relay/dev-server.mjs`）：
@@ -106,7 +139,7 @@ curl "http://127.0.0.1:8799/health"
 ```
 
 但页面是 https，直连 `http://127.0.0.1` 会被混合内容拦 —— 要么在外面套一层 https 反代
-（nginx / frp / cloudflared tunnel），要么就用 Workers。**别把没有任何鉴权的它直接开到公网。**
+（nginx / frp / cloudflared tunnel），要么就用云函数。**别把没有任何鉴权的它直接开到公网。**
 
 ### 接口（想自己实现也行）
 

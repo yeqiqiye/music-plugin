@@ -40,10 +40,13 @@ jobs:
       - name: 构建 IIROSE 脚本产物
         run: node scripts/build-iirose.mjs
 
-      # 两个产物都是提交进仓库的（jsDelivr 只认仓库里的文件）：
+      - name: 构建云函数产物（阿里云 FC / 腾讯云 SCF）
+        run: node scripts/build-relay.mjs
+
+      # 三个产物都是提交进仓库的（jsDelivr 只认仓库里的文件）：
       # 源码改了却忘了 build，这一步会红。
       - name: 提交的产物必须与源码一致
-        run: git diff --exit-code -- lib/client.js iirose/music-iirose.js
+        run: git diff --exit-code -- lib/client.js iirose/music-iirose.js relay/serverless.js
 
       - name: 面板挂载 + 播放链路 smoke（DSH 版）
         run: node dev/smoke-client.mjs
@@ -53,3 +56,6 @@ jobs:
 
       - name: IIROSE 点播帧 + 面板流程 smoke
         run: node dev/iirose-smoke.mjs
+
+      - name: 云函数适配层 smoke（FC/SCF 两种 event 形状）
+        run: node dev/serverless-smoke.mjs
