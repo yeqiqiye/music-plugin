@@ -106,7 +106,27 @@ async function kugouPlayUrl(id) {
 
 // ------------------------------------------------------------------ B 站
 
-const BILI_HEADERS = { referer: 'https://www.bilibili.com/', cookie: 'buvid3=0' };
+/**
+ * B 站的风控按 IP 判定，Cloudflare Workers 的出口 IP 很容易吃到 412。
+ * 这里给一套尽量像真浏览器的头 + 每次冷启动生成一个 buvid3（固定 0 太假）。
+ * 仍然可能被拦 —— 拦了就让用户换酷狗，或用国内云函数部署（出口 IP 在国内更容易过）。
+ */
+function makeBuvid3() {
+  const hex = (n) => Array.from({ length: n }, () => '0123456789ABCDEF'[Math.floor(Math.random() * 16)]).join('');
+  return `${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}infoc`;
+}
+
+const BUV = makeBuvid3();
+const BILI_HEADERS = {
+  referer: 'https://www.bilibili.com/',
+  origin: 'https://www.bilibili.com',
+  accept: 'application/json, text/plain, */*',
+  'accept-language': 'zh-CN,zh;q=0.9',
+  'sec-fetch-dest': 'empty',
+  'sec-fetch-mode': 'cors',
+  'sec-fetch-site': 'same-site',
+  cookie: `buvid3=${BUV}; b_nut=${Math.floor(Date.now() / 1000)};`,
+};
 
 async function bilibiliSearch({ keyword, limit, page }) {
   const url =
@@ -293,7 +313,20 @@ export const worker = {
 
       return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
     } catch (err) {
-      return json({ ok: false, error: String((err && err.message) || err) }, 502);
+      const msg = String((err && err.message) || err);
+      // B 站按 IP 风控：Cloudflare Workers 的出口 IP 经常直接被判 412。
+      // 这里给一条能照着做的提示，别只丢一个「上游 HTTP 412」。
+      if (platform === 'bilibili' && /\b412\b/.test(msg)) {
+        return json(
+          {
+            ok: false,
+            code: 'bilibili-blocked',
+            error: 'B 站把这个出口 IP 判定为异常（412）。先用酷狗，或把中转部署到国内云函数（阿里云 FC / 腾讯云 SCF）再试。',
+          },
+          502,
+        );
+      }
+      return json({ ok: false, error: msg }, 502);
     }
   },
 };
