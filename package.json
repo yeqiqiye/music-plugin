@@ -1,6 +1,6 @@
 {
   "name": "dsh-music-request",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "点歌台：DSH Web 插件（Alt+T 面板，跨平台搜歌）+ IIROSE 用户脚本（一个 JS 链接即可在房间里点播）。",
   "type": "module",
@@ -28,7 +28,7 @@
     "build:relay": "node scripts/build-relay.mjs",
     "build:relay:cjs": "node scripts/build-relay-cjs.mjs",
     "build:all": "node scripts/build.mjs && node scripts/build-iirose.mjs && node scripts/build-relay.mjs && node scripts/build-relay-cjs.mjs",
-    "test": "node dev/smoke-client.mjs && node dev/panel-jsdom.mjs && node dev/iirose-smoke.mjs && node dev/serverless-smoke.mjs",
+    "test": "node dev/smoke-client.mjs && node dev/panel-jsdom.mjs && node dev/scopes-jsdom.mjs && node dev/iirose-smoke.mjs && node dev/mobile-iirose.mjs && node dev/serverless-smoke.mjs",
     "test:relay": "node dev/relay-smoke.mjs",
     "test:serverless": "node dev/serverless-smoke.mjs",
     "dev:server": "node dev/server.mjs",

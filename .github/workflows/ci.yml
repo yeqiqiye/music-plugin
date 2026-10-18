@@ -56,8 +56,14 @@ jobs:
       - name: 面板 UI（真实 DOM）
         run: node dev/panel-jsdom.mjs
 
+      - name: 面板：搜用户 / 搜歌单 / 批量入队
+        run: node dev/scopes-jsdom.mjs
+
       - name: IIROSE 点播帧 + 面板流程 smoke
         run: node dev/iirose-smoke.mjs
+
+      - name: 移动端：悬浮球拖动/关闭 + 双指上滑
+        run: node dev/mobile-iirose.mjs
 
       - name: 云函数适配层 smoke（FC/SCF 两种 event 形状）
         run: node dev/serverless-smoke.mjs

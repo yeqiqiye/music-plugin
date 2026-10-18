@@ -107,9 +107,41 @@
   padding:4px 10px;background:#1e2836;cursor:pointer;font-family:inherit}
 .mk-pager button:hover:not(:disabled){border-color:#3f6ea8;background:#26344a}
 .mk-pager button:disabled{opacity:.4;cursor:not-allowed}
+/* ---------- 搜用户 / 搜歌单（移动端批量点歌主要靠这块） ---------- */
+.mk-scopes{display:flex;gap:6px;padding:0 16px 8px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.mk-scope{background:transparent;color:var(--mk-dim,#93a1b8);border:1px solid var(--mk-line,#2b3444);
+  border-radius:999px;padding:5px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;font-family:inherit;flex:none}
+.mk-scope:hover{color:var(--mk-fg,#e9eef7)}
+.mk-scope.mk-on{color:#cfe6ff;background:#17324f;border-color:#2f6ea8}
+.mk-entity{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px;border:1px solid transparent;cursor:pointer}
+.mk-entity:hover{background:#1a2230;border-color:var(--mk-line,#2b3444)}
+.mk-cover{width:44px;height:44px;border-radius:9px;flex:none;object-fit:cover;background:#1e2836}
+.mk-cover.mk-ph{display:flex;align-items:center;justify-content:center;color:#93a1b8;font-size:17px}
+.mk-detail-head{display:flex;gap:12px;align-items:center;padding:10px 8px 12px;border-bottom:1px solid var(--mk-line,#2b3444);margin-bottom:8px}
+.mk-detail-head .mk-cover{width:58px;height:58px}
+.mk-detail-acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
 @media (max-width:640px){
-  .mk-card{width:100vw;height:100vh;border-radius:0}
-  .mk-acts{display:none}
+  .mk-card{width:100vw;height:100dvh;border-radius:0}
+  .mk-head{padding:10px 12px;gap:8px}
+  .mk-title{font-size:15px}
+  .mk-title small{display:none}
+  .mk-search{padding:8px 12px 6px;gap:8px}
+  .mk-input{flex:1 1 100%;min-width:0;padding:11px 13px;font-size:16px}
+  .mk-tabs,.mk-scopes{padding-left:12px;padding-right:12px}
+  .mk-body{padding:6px 6px 14px}
+  .mk-song{padding:10px 6px;gap:9px}
+  .mk-play{width:36px;height:36px;font-size:13px}
+  .mk-idx{width:18px}
+  .mk-acts a{display:none}
+  .mk-acts button{padding:7px 9px;font-size:12px}
+  .mk-player{padding:8px 10px}
+  .mk-seek,.mk-vol{display:none}
+  .mk-pager{padding:10px}
+  .mk-pager button{padding:9px 16px;font-size:13px}
+  .mk-detail-head{flex-wrap:wrap}
+  .mk-detail-acts{margin-left:0;width:100%}
+  .mk-entity{padding:12px 8px}
+  .mk-cover{width:48px;height:48px}
 }
 `;
 
@@ -165,6 +197,7 @@
           <button class="mk-btn mk-primary" data-act="search">搜索</button>
         </div>
         <div class="mk-tabs" data-el="tabs"></div>
+        <div class="mk-scopes" data-el="scopes"></div>
         <div class="mk-body" data-el="body"></div>
         <div class="mk-pager" data-el="pager"></div>
         <div class="mk-player">
@@ -213,6 +246,7 @@
     const elBody = $('[data-el=body]') || stub();
     const elPager = $('[data-el=pager]') || stub();
     const elTabs = $('[data-el=tabs]') || stub();
+    const elScopes = $('[data-el=scopes]') || null;
     const elKw = $('[data-el=kw]') || stub();
     const elLimit = $('[data-el=limit]') || stub();
     const elStat = $('[data-el=stat]') || stub();
@@ -245,6 +279,12 @@
     let playQueue = [];
     let playIndex = -1;
     let playCurrent = null;
+    // 搜歌 / 搜用户 / 搜歌单
+    const scopes = Array.isArray(opts.scopes) && opts.scopes.length ? opts.scopes : null;
+    let scope = scopes && scopes[0].id ? scopes[0].id : 'song';
+    let listKind = 'song';
+    // 打开歌单/用户详情前记一下原来的列表，返回时还原
+    let detailBack = null;
 
     // 版本号显示在标题旁边：刷新后一眼能确认「页面里跑的是新代码」。
     const elVer = $('[data-el=ver]');
@@ -280,6 +320,73 @@
             `<button class="mk-tab${p.id === current ? ' mk-on' : ''}" data-tab="${esc(p.id)}">${esc(p.label)}</button>`,
         )
         .join('');
+    }
+
+    // ---------- 歌曲 / 用户 / 歌单 ----------
+    // 只有宿主给了 scopes 才显示这一排；不支持搜用户/歌单的平台由中转返回「不支持」提示。
+    function renderScopes() {
+      if (!elScopes || !Array.isArray(scopes) || !scopes.length) {
+        if (elScopes && elScopes.style) elScopes.style.display = 'none';
+        return;
+      }
+      elScopes.innerHTML = scopes
+        .map(
+          (s) =>
+            `<button class="mk-scope${s.id === scope ? ' mk-on' : ''}" data-scope="${esc(s.id)}">${esc(s.label)}</button>`,
+        )
+        .join('');
+    }
+
+    const coverOf = (src, ph) =>
+      src
+        ? `<img class="mk-cover" src="${esc(src)}" alt="" loading="lazy">`
+        : `<div class="mk-cover mk-ph">${ph}</div>`;
+
+    function fmtCount(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v) || v <= 0) return '';
+      if (v >= 100000000) return (v / 100000000).toFixed(1) + ' 亿';
+      if (v >= 10000) return (v / 10000).toFixed(1) + ' 万';
+      return String(v);
+    }
+
+    function userRow(u, i) {
+      const sub = [u.followers != null ? '粉丝 ' + fmtCount(u.followers) : '', u.signature || '']
+        .filter(Boolean)
+        .join(' · ');
+      return `<div class="mk-entity" data-open-user="${i}" title="看 TA 的歌单">
+        ${coverOf(u.avatar, '👤')}
+        <div class="mk-meta"><div class="mk-name">${esc(u.name || '(无名)')}</div><div class="mk-sub">${esc(sub)}</div></div>
+        <div class="mk-acts"><button data-open-user="${i}">歌单 ›</button></div>
+      </div>`;
+    }
+
+    function playlistRow(p, i) {
+      const sub = [
+        p.trackCount != null ? p.trackCount + ' 首' : '',
+        p.creator ? 'by ' + p.creator : '',
+        p.playCount != null ? fmtCount(p.playCount) + ' 播放' : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return `<div class="mk-entity" data-open-pl="${i}" title="打开歌单">
+        ${coverOf(p.cover, '♪')}
+        <div class="mk-meta"><div class="mk-name">${esc(p.name || '(未命名歌单)')}</div><div class="mk-sub">${esc(sub)}</div></div>
+        <div class="mk-acts"><button data-open-pl="${i}">打开 ›</button></div>
+      </div>`;
+    }
+
+    /** 统一渲染：songs / users / playlists 三种行 */
+    function renderList(list, kind, title) {
+      lastResults = list || [];
+      listKind = kind || 'song';
+      const rows =
+        listKind === 'user'
+          ? lastResults.map(userRow)
+          : listKind === 'playlist'
+            ? lastResults.map(playlistRow)
+            : lastResults.map(songRow);
+      elBody.innerHTML = (title ? '<div class="mk-sect">' + esc(title) + '</div>' : '') + rows.join('');
     }
 
     function setStat(text) {
@@ -532,11 +639,18 @@
       elPager.classList.add('mk-on');
     }
 
+    const scopeLabel = () => {
+      const s = (scopes || []).find((x) => x.id === scope);
+      return s ? s.label : '歌曲';
+    };
+    const placeholderOf = () =>
+      scope === 'user' ? '搜用户 / 昵称，例如：晴天' : scope === 'playlist' ? '搜歌单，例如：周杰伦 精选' : '搜歌名 / 歌手，例如：晴天 周杰伦';
+
     async function doSearch(nextPage) {
       if (busy) return;
       const kw = elKw.value.trim();
       if (!kw) {
-        elBody.innerHTML = '<div class="mk-empty">先输入歌名或歌手</div>';
+        elBody.innerHTML = '<div class="mk-empty">先输入关键词</div>';
         elPager.innerHTML = '';
         elPager.classList.remove('mk-on');
         return;
@@ -544,22 +658,22 @@
       // 换了关键词/平台就从第 1 页开始；只有显式给页码才翻页
       const target = Number(nextPage) || 1;
       const limit = Number(elLimit.value) || 20;
+      const type = scope || 'song';
       busy = true;
-      setStat('<span class="mk-load"></span> 正在搜 ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));
+      setStat('<span class="mk-load"></span> 正在搜' + esc(scopeLabel()) + ' · ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));
       elBody.innerHTML = '<div class="mk-empty">搜索中…</div>';
       try {
-        const data = await api.search({ platform: current, keyword: kw, limit, page: target });
+        const data = await api.search({ platform: current, keyword: kw, limit, page: target, type });
         const list = data || [];
         if (!list.length) {
           if (target > 1) {
             // 翻过头了：留在原页，别把用户已经看到的结果清掉
             setStat('没有更多了 · 第 ' + page + ' 页');
-            elBody.innerHTML =
-              '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
-              lastResults.map(songRow).join('');
+            renderList(lastResults, listKind, labelOf(current) + ' · ' + lastResults.length + ' 条');
             renderPager();
           } else {
             lastResults = [];
+            listKind = type;
             page = 1;
             lastLimit = limit;
             elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
@@ -567,13 +681,10 @@
             renderPager();
           }
         } else {
-          lastResults = list;
           page = target;
           lastLimit = limit;
-          elBody.innerHTML =
-            '<div class="mk-sect">' + esc(labelOf(current)) + ' · ' + lastResults.length + ' 条</div>' +
-            lastResults.map(songRow).join('');
-          setStat(lastResults.length + ' 条 · 第 ' + page + ' 页 · ' + esc(labelOf(current)));
+          renderList(list, type, labelOf(current) + ' · ' + list.length + ' 条');
+          setStat(list.length + ' 条 · 第 ' + page + ' 页 · ' + esc(labelOf(current)));
           renderPager();
         }
       } catch (err) {
@@ -583,6 +694,100 @@
       } finally {
         busy = false;
       }
+    }
+
+    /** 打开歌单：一次拿到「歌单信息 + 歌曲」，再给「全部入队」 */
+    async function openPlaylist(p) {
+      if (busy || typeof api.playlist !== 'function') {
+        setStat('当前环境不支持读歌单');
+        return;
+      }
+      busy = true;
+      setStat('<span class="mk-load"></span> 正在打开：' + esc(p.name));
+      try {
+        const d = await api.playlist({ platform: current, id: p.id });
+        const songs = (d && d.songs) || [];
+        const pl = Object.assign({}, p, (d && d.playlist) || {});
+        detailBack = { list: lastResults, kind: listKind, page: page };
+        page = 1;
+        lastLimit = Math.max(1, songs.length);
+        renderList(songs, 'song');
+        const head =
+          '<div class="mk-detail-head">' +
+          coverOf(pl.cover, '♪') +
+          '<div class="mk-meta"><div class="mk-name">' + esc(pl.name || p.name) + '</div><div class="mk-sub">' +
+          esc([songs.length + ' 首', pl.creator ? 'by ' + pl.creator : ''].filter(Boolean).join(' · ')) +
+          '</div></div>' +
+          '<div class="mk-detail-acts">' +
+          (songs.length ? '<button class="mk-btn mk-primary" data-act="batch">全部入队（' + songs.length + '）</button>' : '') +
+          '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+        if (elBody.insertAdjacentHTML) elBody.insertAdjacentHTML('afterbegin', head);
+        if (elPager.classList) elPager.classList.remove('mk-on');
+        setStat('歌单「' + esc(pl.name || p.name) + '」· ' + songs.length + ' 首');
+      } catch (err) {
+        elBody.innerHTML = '';
+        showError(String((err && err.message) || err));
+        setStat('打开歌单失败');
+      } finally {
+        busy = false;
+      }
+    }
+
+    /** 打开某个用户：列出 TA 的歌单 */
+    async function openUser(u) {
+      if (busy || typeof api.userPlaylists !== 'function') {
+        setStat('当前环境不支持读用户歌单');
+        return;
+      }
+      busy = true;
+      setStat('<span class="mk-load"></span> 正在读 ' + esc(u.name) + ' 的歌单');
+      try {
+        const list = (await api.userPlaylists({ platform: current, id: u.id })) || [];
+        detailBack = { list: lastResults, kind: listKind, page: page };
+        page = 1;
+        lastLimit = list.length;
+        renderList(list, 'playlist', '');
+        const head =
+          '<div class="mk-detail-head">' +
+          coverOf(u.avatar, '👤') +
+          '<div class="mk-meta"><div class="mk-name">' + esc(u.name) + '</div><div class="mk-sub">' +
+          esc(list.length + ' 个歌单') + '</div></div>' +
+          '<div class="mk-detail-acts"><button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+        if (elBody.insertAdjacentHTML) elBody.insertAdjacentHTML('afterbegin', head);
+        elPager.classList.remove('mk-on');
+        setStat(u.name + ' · ' + list.length + ' 个歌单');
+      } catch (err) {
+        elBody.innerHTML = '';
+        showError(String((err && err.message) || err));
+        setStat('读取失败');
+      } finally {
+        busy = false;
+      }
+    }
+
+    /** 从歌单/用户详情返回原来的搜索结果 */
+    function goBack() {
+      if (!detailBack) return;
+      const back = detailBack;
+      detailBack = null;
+      page = back.page || 1;
+      renderList(back.list, back.kind, labelOf(current) + ' · ' + (back.list || []).length + ' 条');
+      renderPager();
+      setStat('已返回搜索结果');
+    }
+
+    /** 批量入队（最多 100 首，避免一口气把队列塞爆） */
+    function queueAll(list) {
+      let added = 0;
+      for (const s of (list || []).slice(0, 100)) {
+        if (!s || !s.id) continue;
+        if (playQueue.some((x) => songKey(x) === songKey(s))) continue;
+        playQueue.push(s);
+        added += 1;
+      }
+      refreshRows();
+      setStat('已加入队列 ' + added + ' 首（队列共 ' + playQueue.length + ' 首）');
+      return added;
     }
 
     // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
@@ -646,10 +851,33 @@
         }
         return;
       }
+      const scopeBtn = ev.target.closest('[data-scope]');
+      if (scopeBtn) {
+        scope = scopeBtn.dataset.scope || 'song';
+        renderScopes();
+        if (elKw && elKw.placeholder !== undefined) elKw.placeholder = placeholderOf();
+        if (elKw.value.trim()) doSearch();
+        else setStat('切到「' + scopeLabel() + '」，输入关键词搜索');
+        return;
+      }
+      const openPlBtn = ev.target.closest('[data-open-pl]');
+      if (openPlBtn) {
+        const p = lastResults[Number(openPlBtn.dataset.openPl)];
+        if (p) await openPlaylist(p);
+        return;
+      }
+      const openUserBtn = ev.target.closest('[data-open-user]');
+      if (openUserBtn) {
+        const u = lastResults[Number(openUserBtn.dataset.openUser)];
+        if (u) await openUser(u);
+        return;
+      }
       const act = ev.target.closest('[data-act]');
       if (act) {
         const name = act.dataset.act;
-        if (name === 'close') close();
+        if (name === 'batch') queueAll(lastResults);
+        else if (name === 'back') goBack();
+        else if (name === 'close') close();
         else if (name === 'search') doSearch();
         else if (name === 'page') doSearch(Number(act.dataset.page));
         else if (name === 'mode') {
@@ -726,6 +954,8 @@
     function open() {
       root.classList.add('mk-open');
       renderTabs();
+      renderScopes();
+      if (elKw && elKw.placeholder !== undefined) elKw.placeholder = placeholderOf();
       if (!elBody.childElementCount) {
         elBody.innerHTML =
           '<div class="mk-empty">输入关键词，回车搜索。<br>' +

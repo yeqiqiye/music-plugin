@@ -121,6 +121,120 @@ async function neteasePlayUrl(id, env) {
   };
 }
 
+/** 网易云：cloudsearch / song/detail 两种返回统一成面板要的 Song 形状 */
+function neteaseSongOf(s) {
+  const fee = Number(s.fee);
+  const ar = s.ar || s.artists || [];
+  const al = s.al || s.album || {};
+  return {
+    platform: 'netease',
+    id: String(s.id),
+    title: s.name ?? '',
+    artists: ar.map((a) => a.name).filter(Boolean),
+    album: al.name ?? '',
+    durationMs: Number(s.dt || s.duration) || null,
+    cover: https(al.picUrl || al.picUrl_str),
+    vip: fee === 1 || fee === 4,
+    playable: true,
+    url: 'https://music.163.com/song?id=' + s.id,
+  };
+}
+
+/** 网易云：搜用户（type=1002） */
+async function neteaseUsers({ keyword, limit, page }, env) {
+  const offset = (page - 1) * limit;
+  const url =
+    'https://music.163.com/api/cloudsearch/pc?s=' +
+    encodeURIComponent(keyword) +
+    '&type=1002&limit=' +
+    limit +
+    '&offset=' +
+    offset;
+  const data = await fetchJson(url, netHeaders(env));
+  return (data?.result?.userprofiles ?? []).map((u) => ({
+    platform: 'netease',
+    id: String(u.userId),
+    name: u.nickname ?? '',
+    avatar: https(u.avatarUrl),
+    followers: u.followeds ?? null,
+    signature: u.signature ?? '',
+    url: 'https://music.163.com/#/user/home?id=' + u.userId,
+  }));
+}
+
+/** 网易云：搜歌单（type=1000） */
+async function neteasePlaylistSearch({ keyword, limit, page }, env) {
+  const offset = (page - 1) * limit;
+  const url =
+    'https://music.163.com/api/cloudsearch/pc?s=' +
+    encodeURIComponent(keyword) +
+    '&type=1000&limit=' +
+    limit +
+    '&offset=' +
+    offset;
+  const data = await fetchJson(url, netHeaders(env));
+  return (data?.result?.playlists ?? []).map((p) => ({
+    platform: 'netease',
+    id: String(p.id),
+    name: p.name ?? '',
+    cover: https(p.coverImgUrl),
+    trackCount: p.trackCount ?? null,
+    creator: p.creator?.nickname ?? '',
+    playCount: p.playCount ?? null,
+    url: 'https://music.163.com/#/playlist?id=' + p.id,
+  }));
+}
+
+/**
+ * 网易云：歌单里的歌。
+ * 注意 /api/v6/playlist/detail 里 tracks 默认只给前 10 首，完整列表在 trackIds，
+ * 所以这里按 id 分批再查一次 song/detail（最多 400 首，避免一次拉太多）。
+ */
+async function neteasePlaylist(id, env) {
+  const data = await fetchJson('https://music.163.com/api/v6/playlist/detail?id=' + encodeURIComponent(id), netHeaders(env));
+  const pl = data?.playlist || {};
+  const ids = (pl.trackIds || []).map((x) => x.id).slice(0, 400);
+  const songs = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const sd = await fetchJson(
+      'https://music.163.com/api/song/detail?ids=' + encodeURIComponent(JSON.stringify(chunk)),
+      netHeaders(env),
+    );
+    for (const s of sd?.songs || []) songs.push(neteaseSongOf(s));
+  }
+  return {
+    playlist: {
+      platform: 'netease',
+      id: String(pl.id ?? id),
+      name: pl.name ?? '',
+      cover: https(pl.coverImgUrl),
+      trackCount: pl.trackCount ?? ids.length,
+      creator: pl.creator?.nickname ?? '',
+      playCount: pl.playCount ?? null,
+    },
+    songs,
+  };
+}
+
+/** 网易云：某个用户创建的歌单 */
+async function neteaseUserPlaylists(id, env) {
+  const data = await fetchJson(
+    'https://music.163.com/api/user/playlist?uid=' + encodeURIComponent(id) + '&limit=100&offset=0',
+    netHeaders(env),
+  );
+  return (data?.playlist ?? []).map((p) => ({
+    platform: 'netease',
+    id: String(p.id),
+    name: p.name ?? '',
+    cover: https(p.coverImgUrl),
+    trackCount: p.trackCount ?? null,
+    creator: p.creator?.nickname ?? '',
+    playCount: p.playCount ?? null,
+    url: 'https://music.163.com/#/playlist?id=' + p.id,
+  }));
+}
+
 // ------------------------------------------------------------------ 酷狗
 
 async function kugouSearch({ keyword, limit, page }) {
@@ -390,7 +504,15 @@ async function qqPlayUrl(id, env) {
 }
 
 const PLATFORMS = {
-  netease: { search: neteaseSearch, playurl: neteasePlayUrl },
+  netease: {
+    search: neteaseSearch,
+    playurl: neteasePlayUrl,
+    // 用户 / 歌单只有网易云有：面板按平台能力决定要不要显示这两个入口
+    users: neteaseUsers,
+    playlistSearch: neteasePlaylistSearch,
+    playlist: neteasePlaylist,
+    userPlaylists: neteaseUserPlaylists,
+  },
   kugou: { search: kugouSearch, playurl: kugouPlayUrl },
   bilibili: { search: bilibiliSearch, playurl: bilibiliPlayUrl },
   qq: { search: qqSearch, playurl: qqPlayUrl },
@@ -407,7 +529,7 @@ export const worker = {
 
     try {
       // 先判路径再判平台：不然后面「不支持的平台」会把未知路径也说成 400
-      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playurl', '/stream'];
+      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream'];
       if (!KNOWN_PATHS.includes(url.pathname)) {
         return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
       }
@@ -434,10 +556,44 @@ export const worker = {
 
       if (url.pathname === '/search') {
         const keyword = (p.get('kw') || '').trim();
-        if (!keyword) return json({ ok: true, data: [] });
+        const type = (p.get('type') || 'song').toLowerCase();
         const limit = Math.min(30, Math.max(1, Number(p.get('limit') || 20)));
         const page = Math.max(1, Number(p.get('page') || 1));
-        return json({ ok: true, data: await impl.search({ keyword, limit, page }, env) });
+        if (!keyword) return json({ ok: true, data: [] });
+
+        if (type === 'user') {
+          if (typeof impl.users !== 'function') {
+            return json({ ok: false, code: 'unsupported', error: platform + ' 不支持搜用户，换网易云试试' }, 400);
+          }
+          return json({ ok: true, data: await impl.users({ keyword, limit, page }, env), type: 'user' });
+        }
+        if (type === 'playlist') {
+          if (typeof impl.playlistSearch !== 'function') {
+            return json({ ok: false, code: 'unsupported', error: platform + ' 不支持搜歌单，换网易云试试' }, 400);
+          }
+          return json({ ok: true, data: await impl.playlistSearch({ keyword, limit, page }, env), type: 'playlist' });
+        }
+        return json({ ok: true, data: await impl.search({ keyword, limit, page }, env), type: 'song' });
+      }
+
+      // 歌单详情：一次拿到歌单信息 + 歌（面板用它做「批量入队」）
+      if (url.pathname === '/playlist') {
+        const id = (p.get('id') || '').trim();
+        if (!id) return json({ ok: false, error: '缺少 id' }, 400);
+        if (typeof impl.playlist !== 'function') {
+          return json({ ok: false, code: 'unsupported', error: platform + ' 不支持读歌单' }, 400);
+        }
+        return json({ ok: true, data: await impl.playlist(id, env) });
+      }
+
+      // 某个用户创建的歌单（搜用户点进去之后用）
+      if (url.pathname === '/user') {
+        const id = (p.get('id') || '').trim();
+        if (!id) return json({ ok: false, error: '缺少 id' }, 400);
+        if (typeof impl.userPlaylists !== 'function') {
+          return json({ ok: false, code: 'unsupported', error: platform + ' 不支持读用户歌单' }, 400);
+        }
+        return json({ ok: true, data: await impl.userPlaylists(id, env) });
       }
 
       // 音频中转：只放行白名单域名（见 AUDIO_HOSTS），并补上 CDN 要的 Referer

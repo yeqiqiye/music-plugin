@@ -31,8 +31,10 @@
     hotkey: 'mk_iirose_hotkey',
     mode: 'mk_iirose_mode',
     relay: 'mk_iirose_relay',
+    ball: 'mk_iirose_ball',
+    ballHidden: 'mk_iirose_ball_hidden',
   };
-  var HINT = 'Alt+T 开 / 关 · 点 ▶ 发到房间';
+  var HINT = 'Alt+T 开 / 关 · 双指上滑也能开 · 点 ▶ 发到房间';
 
   // ---------------------------------------------------------------- 小工具
 
@@ -212,10 +214,22 @@
   function search(opts) {
     var platform = (opts && opts.platform) || 'netease';
     var keyword = String((opts && opts.keyword) || '').trim();
+    var type = (opts && opts.type) || 'song';
     if (!keyword) return Promise.resolve([]);
     var limit = Math.min(30, Math.max(1, Number(opts.limit) || 20));
     var page = Math.max(1, Number((opts && opts.page) || 1));
     var base = relayBase();
+
+    // 搜用户 / 歌单只有中转能做（公共接口没有这两类）
+    if (type !== 'song') {
+      if (!base) return Promise.reject(new Error('搜用户 / 歌单要走中转：先点右下角 ⚙ 配一下地址'));
+      return request('/search', { platform: platform, kw: keyword, limit: limit, page: page, type: type }, base).then(
+        function (out) {
+          if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+          return out.data || [];
+        },
+      );
+    }
 
     if (!base) {
       if (platform !== 'netease') {
@@ -231,6 +245,30 @@
       if (platform === 'netease') return shadowseeSearch(keyword, limit, page);
       throw err;
     });
+  }
+
+  /** 歌单详情：{ playlist, songs } —— 面板用它做「全部入队」 */
+  function playlistSongs(opts) {
+    var base = relayBase();
+    if (!base) return Promise.reject(new Error('读歌单要配中转地址'));
+    return request('/playlist', { platform: (opts && opts.platform) || 'netease', id: (opts && opts.id) || '' }, base).then(
+      function (out) {
+        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+        return out.data || { playlist: {}, songs: [] };
+      },
+    );
+  }
+
+  /** 某个用户创建的歌单 */
+  function userPlaylists(opts) {
+    var base = relayBase();
+    if (!base) return Promise.reject(new Error('读用户歌单要配中转地址'));
+    return request('/user', { platform: (opts && opts.platform) || 'netease', id: (opts && opts.id) || '' }, base).then(
+      function (out) {
+        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+        return out.data || [];
+      },
+    );
   }
 
   function songUrl(opts) {
@@ -525,15 +563,25 @@
     var style = doc.createElement('style');
     style.setAttribute('data-music-iirose', '1');
     style.textContent = [
-      '.mk-iirose-ball{position:fixed;right:18px;bottom:18px;z-index:2147482990;width:52px;height:52px;',
-      'border-radius:50%;border:1px solid #2f6ea8;background:#173a5e;color:#cfe6ff;font-size:18px;',
-      'cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:inherit}',
-      '.mk-iirose-ball:hover{background:#1d4a76}',
-      '.mk-iirose-ball.mk-room{box-shadow:0 0 0 3px rgba(126,224,184,.35),0 8px 24px rgba(0,0,0,.45)}',
-      '.mk-iirose-gear{position:fixed;right:22px;bottom:82px;z-index:2147482990;width:34px;height:34px;',
+      '.mk-iirose-gear{position:fixed;right:22px;bottom:96px;z-index:2147482990;width:34px;height:34px;',
       'border-radius:50%;border:1px solid #2b3444;background:#1e2836;color:#93a1b8;font-size:15px;',
       'cursor:pointer;font-family:inherit;line-height:1}',
       '.mk-iirose-gear:hover{color:#cfe6ff;border-color:#3f6ea8}',
+      // 悬浮球：可拖动、可关掉；手机上给大一点的圆和「×」
+      '.mk-iirose-ball{position:fixed;right:18px;bottom:24px;z-index:2147482991;width:52px;height:52px;',
+      'border-radius:50%;border:1px solid #2f6ea8;background:#173a5e;color:#cfe6ff;font-size:18px;',
+      'box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:inherit;display:flex;align-items:center;',
+      'justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}',
+      '.mk-iirose-ball:active{cursor:grabbing}',
+      '.mk-iirose-ball:hover{background:#1d4a76}',
+      '.mk-iirose-ball.mk-room{box-shadow:0 0 0 3px rgba(126,224,184,.35),0 8px 24px rgba(0,0,0,.45)}',
+      '.mk-iirose-ball .mk-ball-x{position:absolute;right:-7px;top:-7px;width:21px;height:21px;border-radius:50%;',
+      'background:#2b3444;border:1px solid #3f4b5e;color:#93a1b8;font-size:13px;line-height:19px;text-align:center;',
+      'cursor:pointer;display:none;touch-action:none}',
+      '.mk-iirose-ball:hover .mk-ball-x,.mk-iirose-ball.mk-touched .mk-ball-x{display:block}',
+      '.mk-iirose-ball .mk-ball-x:hover{background:#6b3238;color:#ffc9cf;border-color:#a04b53}',
+      '@media (max-width:640px){.mk-iirose-ball{width:56px;height:56px;font-size:20px}',
+      '.mk-iirose-ball .mk-ball-x{display:block;width:22px;height:22px;line-height:20px}}',
     ].join('\n');
     (doc.head || doc.documentElement).appendChild(style);
   }
@@ -557,6 +605,8 @@
         return Promise.resolve(list);
       },
       search: search,
+      playlist: playlistSongs,
+      userPlaylists: userPlaylists,
       playurl: songUrl,
       session: function () {
         return Promise.resolve({ platform: 'netease', loggedIn: false, nickname: null });
@@ -587,6 +637,14 @@
       modeSwitch: true,
       // IIROSE 版没有「保存登录」这回事，登录按钮只会误导人
       hideLogin: true,
+      // 搜用户 / 歌单要靠中转（网易云支持，其它平台会提示不支持）
+      scopes: relayBase()
+        ? [
+            { id: 'song', label: '歌曲' },
+            { id: 'user', label: '用户' },
+            { id: 'playlist', label: '歌单' },
+          ]
+        : null,
       onEnqueue: function (song, info) {
         enqueue(song, info);
       },
@@ -596,20 +654,193 @@
       },
     });
 
-    // 悬浮球：浏览器抢走 Alt+T（Firefox 的工具栏）时的兜底入口
-    ballEl = doc.createElement('button');
-    ballEl.className = 'mk-iirose-ball';
-    ballEl.type = 'button';
-    ballEl.title = '点歌台（' + HINT + '）';
-    ballEl.textContent = '♪';
-    ballEl.addEventListener('click', function () {
+    // ---------- 悬浮球：可拖动 / 可关闭 ----------
+    var BALL_SIZE = 52;
+    function ballSaved() {
+      try {
+        var raw = ls(LS.ball, '');
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    function placeBall(x, y) {
+      var vw = window.innerWidth || 360;
+      var vh = window.innerHeight || 640;
+      var pad = 6;
+      x = Math.min(Math.max(pad, x), Math.max(pad, vw - BALL_SIZE - pad));
+      y = Math.min(Math.max(pad, y), Math.max(pad, vh - BALL_SIZE - pad));
+      ballEl.style.left = Math.round(x) + 'px';
+      ballEl.style.top = Math.round(y) + 'px';
+      ballEl.style.right = 'auto';
+      ballEl.style.bottom = 'auto';
+      return { x: Math.round(x), y: Math.round(y) };
+    }
+    function showBall() {
+      if (!ballEl) return;
+      lsSet(LS.ballHidden, '');
+      ballEl.style.display = '';
+    }
+    function hideBall() {
+      if (!ballEl) return;
+      lsSet(LS.ballHidden, '1');
+      ballEl.style.display = 'none';
+    }
+    function togglePanel() {
       try {
         panel.toggle();
       } catch (e) {
         diag.lastError = String(e && e.message);
       }
-    });
+    }
+    function openPanel() {
+      try {
+        panel.open();
+      } catch (e) {
+        diag.lastError = String(e && e.message);
+      }
+    }
+
+    ballEl = doc.createElement('div');
+    ballEl.className = 'mk-iirose-ball';
+    ballEl.title = '点歌台（' + HINT + '）· 按住可以拖动';
+    ballEl.innerHTML =
+      '<span class="mk-ball-ico">♪</span><span class="mk-ball-x" title="隐藏悬浮球（双指上滑可以再叫出来）">×</span>';
     (doc.body || doc.documentElement).appendChild(ballEl);
+
+    var saved = ballSaved();
+    if (ls(LS.ballHidden, '') === '1') ballEl.style.display = 'none';
+    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') placeBall(saved.x, saved.y);
+
+    var drag = null;
+    function pointOf(ev) {
+      if (ev.touches && ev.touches.length) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+      return { x: ev.clientX, y: ev.clientY };
+    }
+    function onBallDown(ev) {
+      // 点「×」不算拖拽
+      if (ev.target && ev.target.classList && ev.target.classList.contains('mk-ball-x')) return;
+      var p = pointOf(ev);
+      drag = {
+        sx: p.x,
+        sy: p.y,
+        ox: parseFloat(ballEl.style.left) || ballEl.offsetLeft || 0,
+        oy: parseFloat(ballEl.style.top) || ballEl.offsetTop || 0,
+        moved: false,
+      };
+      ballEl.classList.add('mk-touched');
+      if (ballEl.setPointerCapture && ev.pointerId != null) {
+        try {
+          ballEl.setPointerCapture(ev.pointerId);
+        } catch (e) {
+          /* 某些老 WebView 不支持 */
+        }
+      }
+    }
+    function onBallMove(ev) {
+      if (!drag) return;
+      var p = pointOf(ev);
+      var dx = p.x - drag.sx;
+      var dy = p.y - drag.sy;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+      if (drag.moved) {
+        placeBall(drag.ox + dx, drag.oy + dy);
+        if (ev.cancelable) ev.preventDefault();
+      }
+    }
+    function onBallUp() {
+      if (!drag) return;
+      var moved = drag.moved;
+      drag = null;
+      if (moved) {
+        // 用 style 上的值（placeBall 已经夹过边界）；getBoundingClientRect 在个别 WebView 里拿不到布局
+        var sx = parseFloat(ballEl.style.left);
+        var sy = parseFloat(ballEl.style.top);
+        if (!isFinite(sx) || !isFinite(sy)) {
+          var r = ballEl.getBoundingClientRect();
+          sx = r.left;
+          sy = r.top;
+        }
+        lsSet(LS.ball, JSON.stringify({ x: sx, y: sy }));
+      } else {
+        togglePanel();
+      }
+    }
+
+    if (window.PointerEvent) {
+      ballEl.addEventListener('pointerdown', onBallDown);
+      ballEl.addEventListener('pointermove', onBallMove);
+      ballEl.addEventListener('pointerup', onBallUp);
+      ballEl.addEventListener('pointercancel', function () {
+        drag = null;
+      });
+    } else {
+      ballEl.addEventListener('touchstart', onBallDown, { passive: true });
+      ballEl.addEventListener('touchmove', onBallMove, { passive: false });
+      ballEl.addEventListener('touchend', onBallUp);
+      ballEl.addEventListener('mousedown', onBallDown);
+      doc.addEventListener('mousemove', onBallMove);
+      doc.addEventListener('mouseup', onBallUp);
+    }
+
+    var ballX = ballEl.querySelector('.mk-ball-x');
+    if (ballX) {
+      ballX.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        ev.preventDefault();
+        hideBall();
+      });
+    }
+
+    // ---------- 双指上滑 = 打开点歌台 ----------
+    // 手机上 Alt+T 用不了，悬浮球被关掉之后总得有个入口
+    var gesture = null;
+    function gestureStart(ev) {
+      if (ev.touches && ev.touches.length === 2) {
+        gesture = {
+          y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2,
+          t: Date.now(),
+          fired: false,
+        };
+      } else if (!ev.touches || ev.touches.length === 0) {
+        gesture = null;
+      }
+    }
+    function gestureMove(ev) {
+      if (!gesture || gesture.fired || !ev.touches || ev.touches.length !== 2) return;
+      var y = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
+      if (gesture.y - y > 90 && Date.now() - gesture.t < 900) {
+        gesture.fired = true;
+        showBall();
+        openPanel();
+      }
+    }
+    function gestureEnd(ev) {
+      if (!ev.touches || ev.touches.length < 2) gesture = null;
+    }
+    function attachGesture(target) {
+      if (!target || !target.addEventListener) return;
+      target.addEventListener('touchstart', gestureStart, { passive: true });
+      target.addEventListener('touchmove', gestureMove, { passive: true });
+      target.addEventListener('touchend', gestureEnd, { passive: true });
+      target.addEventListener('touchcancel', gestureEnd, { passive: true });
+    }
+    attachGesture(doc);
+    // 有些布局会把游戏塞进同源 iframe，那边也要能双指上滑
+    try {
+      var frames = doc.querySelectorAll('iframe');
+      for (var fi = 0; fi < frames.length && fi < 4; fi++) {
+        var fdoc = null;
+        try {
+          fdoc = frames[fi].contentDocument;
+        } catch (e) {
+          fdoc = null;
+        }
+        if (fdoc) attachGesture(fdoc);
+      }
+    } catch (e) {
+      /* 跨域 iframe 就算了 */
+    }
 
     // 没配中转时多一个 ⚙：点开就是配置表单，完全不依赖 F12
     if (!relayBase()) {
