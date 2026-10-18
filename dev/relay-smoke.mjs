@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 中转的真实联网自检（不进 CI：上游会抽风，联网测试放 CI 里只会红得莫名其妙）。
  *
  *   npm run test:relay
@@ -30,6 +30,13 @@ async function probeAudio(streamUrl) {
 }
 
 try {
+  const root = await call('/');
+  check(
+    '根路径返回说明书（不再像报错）',
+    root.ok === true && Array.isArray(root.endpoints),
+    JSON.stringify(root).slice(0, 60),
+  );
+
   const health = await call('/health');
   check('/health 正常', health.ok === true, JSON.stringify(health));
 

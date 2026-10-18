@@ -238,6 +238,22 @@ export default {
     const impl = PLATFORMS[platform];
 
     try {
+      // 根路径给个说明书：直接拿 workers.dev 地址在浏览器里打开时，
+      // 以前会看到 {"ok":false,"error":"不支持的平台："}，看着像部署失败
+      if (url.pathname === '/' || url.pathname === '') {
+        return json({
+          ok: true,
+          name: 'music-relay',
+          note: '点歌台中转已就绪；下面这些才是接口，不是给人直接访问的页面',
+          endpoints: [
+            '/health',
+            '/search?platform=kugou|bilibili&kw=..&limit=..&page=..',
+            '/playurl?platform=kugou|bilibili&id=..',
+            '/stream?platform=bilibili&url=..',
+          ],
+        });
+      }
+
       if (url.pathname === '/health') return json({ ok: true, platforms: Object.keys(PLATFORMS) });
 
       if (!impl) return json({ ok: false, error: '不支持的平台：' + platform }, 400);
