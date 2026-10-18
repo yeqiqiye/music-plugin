@@ -389,10 +389,15 @@ export const worker = {
 
         if (data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: data });
 
-        // B 站音频在部分 CDN 节点上要 Referer，走本中转最稳；酷狗直链匿名可取，不绕这一圈
+        // B 站音频在部分 CDN 节点上要 Referer，走本中转最稳；酷狗直链匿名可取，不绕这一圈。
+        // 但腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（部分节点会 403）。
         if (platform === 'bilibili' && data && data.playable && data.streamUrl) {
-          data.rawStreamUrl = data.streamUrl;
-          data.streamUrl = url.origin + '/stream?platform=bilibili&url=' + encodeURIComponent(data.streamUrl);
+          if (request.headers.get('x-mr-binary') === '0') {
+            data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
+          } else {
+            data.rawStreamUrl = data.streamUrl;
+            data.streamUrl = url.origin + '/stream?platform=bilibili&url=' + encodeURIComponent(data.streamUrl);
+          }
         }
         return json({ ok: true, data });
       }

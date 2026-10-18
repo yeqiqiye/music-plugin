@@ -120,14 +120,21 @@ Cloudflare 的 `workers.dev` 打不开时，同一份逻辑可以直接跑在阿
    `https://xxxx.cn-hangzhou.fcapp.run/health`，看到 `{"ok":true,...}` 就成了；
 6. IIROSE 里 `localStorage.setItem('mk_iirose_relay', 'https://xxxx.cn-hangzhou.fcapp.run')` + 刷新。
 
-#### 腾讯云 SCF（API 网关触发器）
+#### 腾讯云 SCF（函数 URL）
 
-1. 云函数 → 新建 → **Node.js 20** → 运行角色默认即可；
-2. 函数代码里新建 `index.mjs`，粘贴 [`relay/serverless.js`](../relay/serverless.js)；
+> 注意：腾讯云 **API 网关已停售**，新建触发请用「函数 URL」，不要选 API 网关。
+> 另外 SCF 的 Node 运行时对 `.mjs` 支持不稳（新建会 CreateFailed），**必须用 CommonJS**：
+> 入口文件是 [`relay/serverless.cjs`](../relay/serverless.cjs)，存成 `index.js`。
+
+1. 云函数 → 新建 → **Node.js 18** → 运行角色默认即可；
+2. 函数代码里新建 `index.js`，粘贴 [`relay/serverless.cjs`](../relay/serverless.cjs)；
    请求处理程序填 `index.main_handler`；
-3. 触发管理 → 创建触发器 → **API 网关** → 勾选 **集成响应**；
-4. 用给出的 `https://service-xxxx.gz.apigw.tencentcs.com/release/` 访问 `/health`；
-5. 同样把它写进 `mk_iirose_relay`。
+3. 函数详情 → 左侧 **函数 URL** → **新建** → 勾选 **公网访问**、授权类型选 **开放（NONE）**；
+4. 拿到形如 `https://xxxx.ap-guangzhou.tencentscf.com` 的地址，访问 `/health`；
+5. 把它写进 `mk_iirose_relay`。
+
+> SCF 的函数 URL **不支持二进制响应**，所以 B 站的 `/stream` 代理用不了（会直接给 CDN 地址）。
+> 酷狗、网易云的音频都是 CDN 直链，不受影响。
 
 > 云函数的响应是「先收全再返回」，所以 B 站音频要靠 Range 分段，单个响应太大会被平台掐断
 > （SCF 约 6MB、FC 16MB）。正常播放器都是分段请求，一般没事；真遇到大文件失败，换酷狗源。

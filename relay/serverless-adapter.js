@@ -64,6 +64,9 @@ function pickQuery(event) {
     for (const [k, v] of Object.entries(event.queryParameters)) add(k, v);
   } else if (event?.queryStringParameters && typeof event.queryStringParameters === 'object') {
     for (const [k, v] of Object.entries(event.queryStringParameters)) add(k, v);
+  } else if (event?.queryString && typeof event.queryString === 'object') {
+    // 腾讯云「函数 URL」给的是对象：{ platform: 'kugou', kw: 'xx' }
+    for (const [k, v] of Object.entries(event.queryString)) add(k, v);
   } else if (typeof event?.queryString === 'string' && event.queryString.trim().startsWith('{')) {
     try {
       for (const [k, v] of Object.entries(JSON.parse(event.queryString))) add(k, v);
@@ -92,8 +95,17 @@ function toRequest(event) {
   return new Request(url, { method: pickMethod(event), headers });
 }
 
-/** Web Response → event 响应（统一 base64，音频也不怕） */
-async function toResult(response) {
+/** 腾讯云「函数 URL」的事件形状：{ httpMethod, path, queryString, headers, body } */
+function isScfFunctionUrl(event) {
+  return Boolean(event && event.httpMethod && typeof event.path === 'string' && event.queryString && typeof event.queryString === 'object');
+}
+
+/**
+ * Web Response → event 响应。
+ * 阿里云 FC 支持 isBase64Encoded；腾讯云函数 URL 不支持（会把 base64 原样吐出来），
+ * 所以那边降级成文本响应，二进制接口（/stream）由 worker 侧改走直链。
+ */
+async function toResult(response, textOnly = false) {
   const headers = {};
   response.headers.forEach((v, k) => {
     const lower = k.toLowerCase();
@@ -101,6 +113,9 @@ async function toResult(response) {
     headers[k] = v;
   });
   const buf = Buffer.from(await response.arrayBuffer());
+  if (textOnly) {
+    return { statusCode: response.status, headers, isBase64Encoded: false, body: buf.toString('utf8') };
+  }
   return {
     statusCode: response.status,
     headers,
@@ -114,9 +129,15 @@ async function toResult(response) {
  * 腾讯云 SCF 的入口（请求处理程序填 index.main_handler）
  */
 export async function handler(event) {
+  const scf = isScfFunctionUrl(event);
   try {
-    const response = await worker.fetch(toRequest(event));
-    return await toResult(response);
+    const request = toRequest(event);
+    // 告诉 worker：这次跑在不支持二进制响应的运行时上
+    if (scf) request.headers.set('x-mr-binary', '0');
+    // 云函数的环境变量在 process.env 里（阿里云 FC / 腾讯云 SCF 都是这样）
+    const env = typeof process !== 'undefined' && process.env ? process.env : {};
+    const response = await worker.fetch(request, env);
+    return await toResult(response, scf);
   } catch (err) {
     return {
       statusCode: 502,

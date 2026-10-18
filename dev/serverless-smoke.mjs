@@ -75,6 +75,16 @@ check('腾讯云：/health 内容正确', scfBody.json?.ok === true, scfBody.tex
 const scfSearchShape = await handler(scfEvent('/nope', '{}'));
 check('腾讯云：未知路径 404', scfSearchShape.statusCode === 404, String(scfSearchShape.statusCode));
 
+// ---------------- 腾讯云「函数 URL」形状（httpMethod/path/queryString 对象）----------------
+const scfUrl = (path, queryString = {}) => ({ body: '', headers: { host: 'x.ap-guangzhou.tencentscf.com' }, httpMethod: 'GET', path, queryString });
+
+const suHealth = await handler(scfUrl('/health'));
+check('腾讯云函数URL：/health 200', suHealth.statusCode === 200, String(suHealth.statusCode));
+check('腾讯云函数URL：响应是文本（不是 base64）', suHealth.isBase64Encoded === false && suHealth.body.startsWith('{'), String(suHealth.body).slice(0, 40));
+
+const suQuery = await handler(scfUrl('/playurl', { platform: 'nope', id: '1' }));
+const suBody = JSON.parse(suQuery.body);
+check('腾讯云函数URL：queryString 对象被解析', /不支持的平台/.test(String(suBody.error)), String(suBody.error));
 // ---------------- 可选：真实上游 ----------------
 if (process.env.RELAY_NET === '1') {
   try {
