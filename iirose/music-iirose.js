@@ -1,5 +1,5 @@
-/*! music-iirose v0.3.2 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.3.2 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.3 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.3 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -798,7 +798,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = { mountMusicPanel };
 })(typeof window !== 'undefined' ? window : globalThis);
 
-;﻿/**
+;/**
  * IIROSE 版点歌台 —— 源码（产物是 iirose/music-iirose.js，别直接引用这个文件）。
  *
  * 和 DSH 版的区别，一句话：这里没有 Node 半侧。
@@ -817,7 +817,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.3.2';
+  var VERSION = '0.3.3';
 
   // 幂等：同一个页面被重复注入（改 URL 后没刷新、脚本列表里贴了两遍）时不挂第二套。
   if (window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.mounted) return;
@@ -968,7 +968,7 @@
   }
 
   // 点播卡片/媒体帧里的平台标记（对端客户端据此显示图标）
-  var TYPE_MARK = { netease: '@0', kugou: '@4', bilibili: '=0' };
+  var TYPE_MARK = { netease: '@0', kugou: '@4', bilibili: '=0', qq: '@2' };
 
   /** /cloudsearch 的一条结果 → 面板认得的 Song 形状 */
   function normalize(song) {
@@ -1352,6 +1352,7 @@
         if (relayBase()) {
           list.push({ id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' });
           list.push({ id: 'bilibili', label: 'B 站（音频轨）', home: 'https://www.bilibili.com/' });
+          list.push({ id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' });
         }
         return Promise.resolve(list);
       },

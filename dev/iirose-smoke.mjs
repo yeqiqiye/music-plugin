@@ -1,4 +1,4 @@
-﻿/**
+/**
  * IIROSE 版点歌台的离线冒烟：在 jsdom 里跑真正的 iirose/music-iirose.js。
  *
  * 覆盖：载入幂等 → 挂载 → Alt+T 开关 → 搜索归一化 → 点 ▶ 发出的两帧（逐字段断言）
@@ -293,7 +293,7 @@ check('只剩 3 条时「下一页」禁用', panelEl.querySelector('[data-el=pa
 // ---------------- 9. 配了中转之后：酷狗 ----------------
 check('中转地址进了诊断', String(diag.relay || '').includes('relay.example.com'), String(diag.relay));
 const tabCount = panelEl.querySelectorAll('.mk-tab').length;
-check('平台 tab 变成 3 个（网易云 + 酷狗 + B 站）', tabCount === 3, String(tabCount));
+check('平台 tab 变成 4 个（网易云 + 酷狗 + B 站 + QQ）', tabCount === 4, String(tabCount));
 
 // 切回「点播到房间」再试
 panelEl.querySelector('[data-act=mode]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * IIROSE 版点歌台 —— 源码（产物是 iirose/music-iirose.js，别直接引用这个文件）。
  *
  * 和 DSH 版的区别，一句话：这里没有 Node 半侧。
@@ -168,7 +168,7 @@
   }
 
   // 点播卡片/媒体帧里的平台标记（对端客户端据此显示图标）
-  var TYPE_MARK = { netease: '@0', kugou: '@4', bilibili: '=0' };
+  var TYPE_MARK = { netease: '@0', kugou: '@4', bilibili: '=0', qq: '@2' };
 
   /** /cloudsearch 的一条结果 → 面板认得的 Song 形状 */
   function normalize(song) {
@@ -552,6 +552,7 @@
         if (relayBase()) {
           list.push({ id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' });
           list.push({ id: 'bilibili', label: 'B 站（音频轨）', home: 'https://www.bilibili.com/' });
+          list.push({ id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' });
         }
         return Promise.resolve(list);
       },

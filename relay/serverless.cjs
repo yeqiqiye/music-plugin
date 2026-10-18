@@ -326,10 +326,77 @@ async function proxyAudio(request, target, platform) {
 const PLAY_CACHE_MS = 5 * 60 * 1000;
 const playCache = new Map();
 
+// ---------------- QQ 音乐 ----------------
+// 搜索打 search_for_qq_cp（要 format=json，jsonp 版本会返回空）；
+// 取地址打 musicu.fcg 的 vkey 模块，sip + purl 拼出 m4a 直链（http 的 sip 换 https 也能放）。
+// 绿钻曲需要 QQ_COOKIE（qm_keyst 那一串）+ QQ_UIN（QQ 号）两个环境变量。
+async function qqSearch({ keyword, limit, page }, env) {
+  const url =
+    'https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp?format=json&new_json=1&p=' +
+    page +
+    '&n=' +
+    limit +
+    '&w=' +
+    encodeURIComponent(keyword);
+  const data = await fetchJson(url, {
+    referer: 'https://y.qq.com/portal/search.html',
+    cookie: (env && env.QQ_COOKIE) || '',
+  });
+  const list = data?.data?.song?.list ?? [];
+  return list.map((s) => ({
+    platform: 'qq',
+    id: String(s.songmid ?? ''),
+    title: s.songname ?? '',
+    artists: (s.singer || []).map((x) => x.name).filter(Boolean),
+    album: s.albumname ?? '',
+    durationMs: seconds((Number(s.interval) || 0) * 1000),
+    cover: s.albummid ? `https://y.qq.com/music/photo_new/T002R300x300M000${s.albummid}.jpg` : null,
+    vip: Number((s.pay && s.pay.payplay) || 0) > 0,
+    playable: true,
+    url: `https://y.qq.com/n/ryqq/songDetail/${s.songmid}`,
+  }));
+}
+
+async function qqPlayUrl(id, env) {
+  const cookie = (env && env.QQ_COOKIE) || '';
+  // QQ 的 Cookie 里 uin 常写成 o1234567890，vkey 要纯数字，这里兜一下
+  const uin = String((env && env.QQ_UIN) || '0').replace(/^o/i, '') || '0';
+  const payload = {
+    req_0: {
+      module: 'vkey.GetVkeyServer',
+      method: 'CgiGetVkey',
+      param: { guid: '10000', songmid: [id], songtype: [0], uin, loginflag: 1, platform: '20' },
+    },
+    comm: { uin, format: 'json', ct: 24, cv: 0 },
+  };
+  const data = await fetchJson('https://u.y.qq.com/cgi-bin/musicu.fcg?data=' + encodeURIComponent(JSON.stringify(payload)), {
+    referer: 'https://y.qq.com/',
+    cookie,
+  });
+  const info = data?.req_0?.data?.midurlinfo?.[0];
+  const sip = (data?.req_0?.data?.sip || [])[0] || 'https://dl.stream.qqmusic.qq.com/';
+  if (!info || !info.purl) {
+    return {
+      playable: false,
+      reason: cookie ? 'vip' : 'need-cookie',
+      note: cookie
+        ? 'QQ 音乐没给地址：这首可能是付费/版权限制，或者 Cookie 过期了'
+        : '这首要绿钻：在 Worker 里配 QQ_COOKIE + QQ_UIN 后重试',
+    };
+  }
+  return {
+    playable: true,
+    streamUrl: String(sip).replace(/^http:\/\//, 'https://') + info.purl,
+    ext: 'm4a',
+    bitrate: 128000,
+  };
+}
+
 const PLATFORMS = {
   netease: { search: neteaseSearch, playurl: neteasePlayUrl },
   kugou: { search: kugouSearch, playurl: kugouPlayUrl },
   bilibili: { search: bilibiliSearch, playurl: bilibiliPlayUrl },
+  qq: { search: qqSearch, playurl: qqPlayUrl },
 };
 
 const worker = {
