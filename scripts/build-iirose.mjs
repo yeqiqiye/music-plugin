@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 
-const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+// 有人的编辑器给 package.json 加 BOM（PowerShell 的 Set-Content 就会），这里兜一下
+const pkg = JSON.parse((await readFile(join(root, 'package.json'), 'utf8')).replace(/^\uFEFF/, ''));
 const panelSource = await readFile(join(root, 'client', 'panel-ui.js'), 'utf8');
 const mainSource = await readFile(join(root, 'iirose', 'main.js'), 'utf8');
 

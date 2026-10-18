@@ -77,13 +77,40 @@ const KUGOU_SONG = {
   url: 'https://www.kugou.com/mixsong/abc.html',
 };
 
+/** 163 原始形状 → 中转返回的 Song 形状（两份 fixture 共用一套数据） */
+function toSongs(fixture) {
+  return (fixture.result.songs || []).map((s) => ({
+    platform: 'netease',
+    id: String(s.id),
+    title: s.name,
+    artists: (s.ar || []).map((a) => a.name),
+    album: s.al?.name || '',
+    durationMs: s.dt || null,
+    cover: s.al?.picUrl || '',
+    vip: s.fee === 1 || s.fee === 4,
+    playable: true,
+    url: 'https://music.163.com/song?id=' + s.id,
+  }));
+}
+
 function route(url) {
   requested.push(String(url));
   const u = String(url);
   if (u.includes('relay.example.com/search')) {
+    const q = new URL(u).searchParams;
+    if (q.get('platform') === 'netease') {
+      return { ok: true, data: toSongs(q.get('page') === '2' ? SEARCH_PAGE2 : SEARCH_FIXTURE) };
+    }
     return { ok: true, data: [KUGOU_SONG] };
   }
   if (u.includes('relay.example.com/playurl')) {
+    const q = new URL(u).searchParams;
+    if (q.get('platform') === 'netease') {
+      return {
+        ok: true,
+        data: { playable: true, streamUrl: 'https://m702.music.126.net/x/y/track.mp3', ext: 'mp3', bitrate: 128012 },
+      };
+    }
     return {
       ok: true,
       data: { playable: true, streamUrl: 'https://sharefs.kugou.com/x/track.mp3', ext: 'mp3', bitrate: 128000 },
@@ -177,7 +204,7 @@ await tick(60);
 
 const rows = panelEl.querySelectorAll('.mk-song');
 check('搜索后渲染 20 行结果', rows.length === 20, String(rows.length));
-check('请求打到了 /cloudsearch', requested.some((u) => u.includes('/cloudsearch')), requested[0] || '');
+check('网易云搜索打到了中转', requested.some((u) => u.includes('relay.example.com/search') && u.includes('platform=netease')), requested[0] || '');
 check('VIP 标记（fee=8 不算 VIP）出现「可听」', panelEl.innerHTML.includes('可听'));
 
 // ---------------- 4. 点 ▶ 发出的两帧 ----------------
@@ -257,7 +284,7 @@ check('第 1 页的「上一页」是禁用的', pager.querySelector('[data-page
 
 pager.querySelector('[data-page="2"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick(60);
-check('翻页请求带上了 offset=20', requested.some((u) => u.includes('offset=20')));
+check('翻页请求带上了 page=2', requested.some((u) => u.includes('relay.example.com/search') && u.includes('page=2')));
 check('第 2 页渲染了另一批歌（七里香）', panelEl.innerHTML.includes('七里香'));
 const statText = panelEl.querySelector('[data-el=stat]').textContent;
 check('状态栏显示「第 2 页」', /第 2 页/.test(statText), statText);
@@ -300,6 +327,29 @@ try {
   kgCard = null;
 }
 check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m__4@4>'), kgCard && String(kgCard.m).slice(0, 22));
+
+// ---------------- 10. 没配中转时：右下角 ⚙ 配置入口（不用 F12） ----------------
+{
+  const dom2 = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const w2 = dom2.window;
+  w2.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  w2.socket = { send() {}, onmessage: null };
+  w2.uid = '1';
+  vm.runInContext(code, dom2.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(20);
+  const gear = w2.document.querySelector('.mk-iirose-gear');
+  check('没配中转时出现 ⚙ 配置按钮', Boolean(gear));
+  if (gear) {
+    gear.dispatchEvent(new w2.MouseEvent('click', { bubbles: true }));
+    await tick(20);
+    check('点 ⚙ 弹出配置表单', Boolean(w2.document.querySelector('[data-mk-setup] [data-mk-input]')));
+  }
+  check('没配中转时不会渲染酷狗 tab', w2.document.querySelectorAll('.mk-tab').length === 1);
+}
 
 console.log('');
 if (failures.length) {

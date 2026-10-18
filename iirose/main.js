@@ -191,24 +191,8 @@
     };
   }
 
-  function search(opts) {
-    var platform = (opts && opts.platform) || 'netease';
-    var keyword = String((opts && opts.keyword) || '').trim();
-    if (!keyword) return Promise.resolve([]);
-    var limit = Math.min(30, Math.max(1, Number(opts.limit) || 20));
-    var page = Math.max(1, Number((opts && opts.page) || 1));
-
-    if (platform !== 'netease') {
-      var base = relayBase();
-      if (!base) {
-        return Promise.reject(new Error('「' + platform + '」要走中转：先配 mk_iirose_relay（见 docs/iirose.md）'));
-      }
-      return request('/search', { platform: platform, kw: keyword, limit: limit, page: page }, base).then(function (out) {
-        if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
-        return out.data || [];
-      });
-    }
-
+  /** 没配中转时的兜底：ShadowSee（公共接口，无 Cookie，VIP 曲拿不到） */
+  function shadowseeSearch(keyword, limit, page) {
     return request('/cloudsearch', {
       keywords: keyword,
       type: 1,
@@ -220,22 +204,61 @@
     });
   }
 
+  /**
+   * 配了中转就**所有平台都走中转**（包括网易云）——
+   * 中转那边可以带用户自己的 Cookie，VIP 曲才拿得到；
+   * 中转失败时网易云再退回 ShadowSee。
+   */
+  function search(opts) {
+    var platform = (opts && opts.platform) || 'netease';
+    var keyword = String((opts && opts.keyword) || '').trim();
+    if (!keyword) return Promise.resolve([]);
+    var limit = Math.min(30, Math.max(1, Number(opts.limit) || 20));
+    var page = Math.max(1, Number((opts && opts.page) || 1));
+    var base = relayBase();
+
+    if (!base) {
+      if (platform !== 'netease') {
+        return Promise.reject(new Error('「' + platform + '」要走中转：先配中转地址（见 docs/iirose.md）'));
+      }
+      return shadowseeSearch(keyword, limit, page);
+    }
+
+    return request('/search', { platform: platform, kw: keyword, limit: limit, page: page }, base).then(function (out) {
+      if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+      return out.data || [];
+    }).catch(function (err) {
+      if (platform === 'netease') return shadowseeSearch(keyword, limit, page);
+      throw err;
+    });
+  }
+
   function songUrl(opts) {
     var platform = (opts && opts.platform) || 'netease';
     var id = String((opts && opts.id) || '');
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
+    var base = relayBase();
 
-    if (platform !== 'netease') {
-      var base = relayBase();
-      if (!base) {
-        return Promise.resolve({ playable: false, reason: 'need-relay', note: '这个平台要走中转：先配 mk_iirose_relay' });
-      }
+    if (base) {
       return request('/playurl', { platform: platform, id: id }, base).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
-        return out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
+        var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
+        // 中转（没配 Cookie）拿不到 VIP 曲时，网易云再问一次公共接口，能拿到就拿到
+        if (platform === 'netease' && data.playable === false) return shadowseeSongUrl(id);
+        return data;
+      }).catch(function (err) {
+        if (platform === 'netease') return shadowseeSongUrl(id);
+        throw err;
       });
     }
 
+    if (platform !== 'netease') {
+      return Promise.resolve({ playable: false, reason: 'need-relay', note: '这个平台要走中转：先配中转地址' });
+    }
+    return shadowseeSongUrl(id);
+  }
+
+  function shadowseeSongUrl(id) {
     return request('/song/url/v1', { id: id, level: 'standard' }).then(function (json) {
       var d = json && json.data && json.data[0];
       if (!d || !d.url) {
@@ -415,11 +438,87 @@
     return code === 'Key' + spec.key.toUpperCase() || key === spec.key;
   }
 
+  /**
+   * 页内配置：没有中转地址时，右下角多一个 ⚙，点开就能填 —— 不用开 F12。
+   * （很多人开 DevTools 会被站点的反调试搞到页面反复刷新，这条路能绕过去。）
+   */
+  function showSetup() {
+    var doc = document;
+    if (doc.querySelector('[data-mk-setup]')) return;
+    var wrap = doc.createElement('div');
+    wrap.setAttribute('data-mk-setup', '1');
+    wrap.style.cssText =
+      'position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(6,9,14,.62);font:14px/1.7 -apple-system,"Microsoft YaHei","PingFang SC",system-ui,sans-serif';
+
+    var card = doc.createElement('div');
+    card.style.cssText =
+      'width:min(560px,92vw);background:#141a24;color:#e9eef7;border:1px solid #2b3444;border-radius:16px;' +
+      'padding:20px;box-shadow:0 24px 70px rgba(0,0,0,.55)';
+    card.innerHTML =
+      '<div style="font-size:16px;font-weight:700;margin-bottom:6px">配置中转地址</div>' +
+      '<div style="font-size:12.5px;color:#93a1b8;line-height:1.7;margin-bottom:12px">' +
+      '填你已经部署好的中转（Cloudflare Worker 或云函数），例如 ' +
+      '<code style="color:#cfe6ff">https://music-relay.yeqiqiye.xyz</code>。<br>' +
+      '配好后会多出「酷狗音乐」「B 站」两个 tab；如果中转里配了自己的 Cookie，网易云 VIP 曲也能放。' +
+      '</div>' +
+      '<input data-mk-input placeholder="https://music-relay.你的域名" ' +
+      'style="width:100%;box-sizing:border-box;background:#1b2432;color:inherit;border:1px solid #2b3444;' +
+      'border-radius:10px;padding:10px 12px;font-size:13px;outline:none">' +
+      '<div data-mk-msg style="min-height:18px;margin-top:8px;font-size:12px;color:#ffc9cf"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">' +
+      '<button data-mk-cancel style="background:transparent;color:inherit;border:1px solid #2b3444;border-radius:9px;' +
+      'padding:7px 14px;font-size:13px;cursor:pointer">取消</button>' +
+      '<button data-mk-save style="background:#173a5e;border:1px solid #2f6ea8;color:#cfe6ff;border-radius:9px;' +
+      'padding:7px 14px;font-size:13px;cursor:pointer">保存并刷新</button>' +
+      '</div>';
+
+    wrap.appendChild(card);
+    (doc.body || doc.documentElement).appendChild(wrap);
+
+    var input = card.querySelector('[data-mk-input]');
+    var msg = card.querySelector('[data-mk-msg]');
+    input.value = relayBase() || '';
+
+    function close() {
+      wrap.remove();
+    }
+    card.querySelector('[data-mk-cancel]').addEventListener('click', close);
+    wrap.addEventListener('click', function (ev) {
+      if (ev.target === wrap) close();
+    });
+    card.querySelector('[data-mk-save]').addEventListener('click', function () {
+      var value = String(input.value || '').trim().replace(/\/+$/, '');
+      if (!value) {
+        msg.textContent = '先填一个地址';
+        return;
+      }
+      if (!/^https?:\/\//i.test(value)) value = 'https://' + value;
+      try {
+        // eslint-disable-next-line no-new
+        new URL(value);
+      } catch (e) {
+        msg.textContent = '地址格式不对，示例：https://music-relay.xxx.xyz';
+        return;
+      }
+      lsSet(LS.relay, value);
+      msg.style.color = '#7ee0b8';
+      msg.textContent = '已保存，正在刷新…';
+      setTimeout(function () {
+        location.reload();
+      }, 300);
+    });
+    setTimeout(function () {
+      input.focus();
+    }, 0);
+  }
+
   // ---------------------------------------------------------------- 启动
 
   var panel = null;
   var hostEl = null;
   var ballEl = null;
+  var gearEl = null;
 
   function ensureCss(doc) {
     if (doc.querySelector('style[data-music-iirose]')) return;
@@ -431,6 +530,10 @@
       'cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:inherit}',
       '.mk-iirose-ball:hover{background:#1d4a76}',
       '.mk-iirose-ball.mk-room{box-shadow:0 0 0 3px rgba(126,224,184,.35),0 8px 24px rgba(0,0,0,.45)}',
+      '.mk-iirose-gear{position:fixed;right:22px;bottom:82px;z-index:2147482990;width:34px;height:34px;',
+      'border-radius:50%;border:1px solid #2b3444;background:#1e2836;color:#93a1b8;font-size:15px;',
+      'cursor:pointer;font-family:inherit;line-height:1}',
+      '.mk-iirose-gear:hover{color:#cfe6ff;border-color:#3f6ea8}',
     ].join('\n');
     (doc.head || doc.documentElement).appendChild(style);
   }
@@ -507,6 +610,17 @@
     });
     (doc.body || doc.documentElement).appendChild(ballEl);
 
+    // 没配中转时多一个 ⚙：点开就是配置表单，完全不依赖 F12
+    if (!relayBase()) {
+      gearEl = doc.createElement('button');
+      gearEl.className = 'mk-iirose-gear';
+      gearEl.type = 'button';
+      gearEl.title = '配置中转地址（不用开 F12）';
+      gearEl.textContent = '⚙';
+      gearEl.addEventListener('click', showSetup);
+      (doc.body || doc.documentElement).appendChild(gearEl);
+    }
+
     var spec = parseHotkey(ls(LS.hotkey, 'Alt+T'));
     doc.addEventListener(
       'keydown',
@@ -539,6 +653,7 @@
   // 面板源码里已经带了 copyDirective 需要的上下文，但复制指令挂在面板外：
   // 这里把兜底复制能力也挂到全局，方便 DevTools 里手动救急。
   window.__musicIroseCopyDirective = copyDirective;
+  window.__musicIroseSetup = showSetup;
 
   try {
     mount();

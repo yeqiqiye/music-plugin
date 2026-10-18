@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 点歌台中转（可选）—— 让 IIROSE 版也能搜酷狗 / B 站。
  *
  * 为什么必须有它：
@@ -58,6 +58,69 @@ async function fetchJson(url, headers = {}) {
 const https = (u) => (typeof u === 'string' && u.startsWith('http://') ? 'https://' + u.slice(7) : u);
 const seconds = (ms) => (Number.isFinite(Number(ms)) ? Math.round(Number(ms)) : null);
 
+// ------------------------------------------------------------------ 网易云
+
+/**
+ * 网易云直接打官方接口（不经过任何第三方），Cookie 放在 Worker 的 secret 里：
+ *   NETEASE_COOKIE = "MUSIC_U=xxx; __csrf=xxx;"
+ * 有 Cookie 时 VIP / 付费曲能拿到真实地址；没有就只能放免费曲。
+ */
+const NET_Z = { UA, Referer: 'https://music.163.com/' };
+
+function netHeaders(env) {
+  const cookie = (env && env.NETEASE_COOKIE) || '';
+  return { ...NET_Z, ...(cookie ? { Cookie: cookie } : {}) };
+}
+
+async function neteaseSearch({ keyword, limit, page }, env) {
+  const offset = (page - 1) * limit;
+  const url =
+    'https://music.163.com/api/cloudsearch/pc?s=' +
+    encodeURIComponent(keyword) +
+    '&type=1&limit=' +
+    limit +
+    '&offset=' +
+    offset;
+  const data = await fetchJson(url, netHeaders(env));
+  const list = data?.result?.songs ?? [];
+  return list.map((s) => {
+    const fee = Number(s.fee);
+    const vip = fee === 1 || fee === 4;
+    return {
+      platform: 'netease',
+      id: String(s.id),
+      title: s.name ?? '',
+      artists: (s.ar ?? []).map((a) => a.name).filter(Boolean),
+      album: s.al?.name ?? '',
+      durationMs: Number(s.dt) || null,
+      cover: https(s.al?.picUrl),
+      vip,
+      playable: true,
+      url: 'https://music.163.com/song?id=' + s.id,
+    };
+  });
+}
+
+async function neteasePlayUrl(id, env) {
+  const url = 'https://music.163.com/api/song/enhance/player/url?ids=%5B' + encodeURIComponent(id) + '%5D&br=320000';
+  const data = await fetchJson(url, netHeaders(env));
+  const d = data?.data?.[0];
+  if (!d || !d.url) {
+    return {
+      playable: false,
+      reason: 'no-url',
+      note: (env && env.NETEASE_COOKIE ? '有 Cookie 仍拿不到：可能是数字专辑/地区限制' : '这首要会员：在 Worker 里配 NETEASE_COOKIE 后重试'),
+    };
+  }
+  return {
+    playable: true,
+    streamUrl: https(d.url),
+    ext: d.type || 'mp3',
+    bitrate: d.br || null,
+    size: d.size || null,
+  };
+}
+
 // ------------------------------------------------------------------ 酷狗
 
 async function kugouSearch({ keyword, limit, page }) {
@@ -90,10 +153,11 @@ async function kugouSearch({ keyword, limit, page }) {
   });
 }
 
-async function kugouPlayUrl(id) {
+async function kugouPlayUrl(id, env) {
+  const cookie = ['kg_mid=1', (env && env.KUGOU_COOKIE) || ''].filter(Boolean).join('; ');
   const data = await fetchJson(
     'https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=' + encodeURIComponent(id),
-    { referer: 'https://www.kugou.com/', cookie: 'kg_mid=1' },
+    { referer: 'https://www.kugou.com/', cookie },
   );
   if (!data?.url) return { playable: false, reason: 'no-url', note: data?.error || '酷狗没有返回可播放地址' };
   return {
@@ -244,12 +308,13 @@ async function proxyAudio(request, target, platform) {
 // ------------------------------------------------------------------ 路由
 
 const PLATFORMS = {
+  netease: { search: neteaseSearch, playurl: neteasePlayUrl },
   kugou: { search: kugouSearch, playurl: kugouPlayUrl },
   bilibili: { search: bilibiliSearch, playurl: bilibiliPlayUrl },
 };
 
 export const worker = {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
     const url = new URL(request.url);
@@ -289,7 +354,7 @@ export const worker = {
         if (!keyword) return json({ ok: true, data: [] });
         const limit = Math.min(30, Math.max(1, Number(p.get('limit') || 20)));
         const page = Math.max(1, Number(p.get('page') || 1));
-        return json({ ok: true, data: await impl.search({ keyword, limit, page }) });
+        return json({ ok: true, data: await impl.search({ keyword, limit, page }, env) });
       }
 
       // 音频中转：只放行白名单域名（见 AUDIO_HOSTS），并补上 CDN 要的 Referer
@@ -302,7 +367,7 @@ export const worker = {
       if (url.pathname === '/playurl') {
         const id = (p.get('id') || '').trim();
         if (!id) return json({ ok: false, error: '缺少 id' }, 400);
-        const data = await impl.playurl(id);
+        const data = await impl.playurl(id, env);
         // B 站音频在部分 CDN 节点上要 Referer，走本中转最稳；酷狗直链匿名可取，不绕这一圈
         if (platform === 'bilibili' && data && data.playable && data.streamUrl) {
           data.rawStreamUrl = data.streamUrl;

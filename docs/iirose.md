@@ -18,6 +18,9 @@
 | 房间状态 | 面板显示「房间正在播放：歌名 - 歌手」（监听 `&1` 媒体帧） |
 | 兜底 | 每行的「指令」按钮复制 `@@歌名 歌手`，房间不让点播时自己粘聊天框 |
 | 酷狗 / B 站 | **需要配一个中转**（见下文），配好后自动多两个 tab |
+| 会员曲（网易云） | 中转里配 `NETEASE_COOKIE` 即可；没配也能放免费曲 |
+
+> 配中转**不用开 F12**：没配过的时候右下角会多一个 **⚙**，点开填地址就行（见下文）。
 
 ## 安装（三步）
 
@@ -144,13 +147,37 @@ curl "http://127.0.0.1:8799/health"
 ### 接口（想自己实现也行）
 
 ```
-GET /search?platform=kugou|bilibili&kw=..&limit=..&page=..   → { ok, data: Song[] }
-GET /playurl?platform=kugou|bilibili&id=..                   → { ok, data: { playable, streamUrl, ext, bitrate } }
-GET /stream?platform=bilibili&url=..                         → 音频字节（Range 透传，补 Referer）
-GET /health                                                  → { ok, platforms }
+GET /search?platform=netease|kugou|bilibili&kw=..&limit=..&page=..  → { ok, data: Song[] }
+GET /playurl?platform=netease|kugou|bilibili&id=..                  → { ok, data: { playable, streamUrl, ext, bitrate } }
+GET /stream?platform=bilibili&url=..                                → 音频字节（Range 透传，补 Referer）
+GET /health                                                         → { ok, platforms }
 ```
 
-所有响应都带 `Access-Control-Allow-Origin: *`，不读 cookie，不存任何东西。
+所有响应都带 `Access-Control-Allow-Origin: *`；中转本身不存任何东西（Cookie 只以环境变量形式存在）。
+
+## 用你自己的会员（Cookie）
+
+中转支持两个环境变量（Cloudflare Worker：**Settings → Variables and Secrets → Add → Secret**）：
+
+| 变量 | 作用 |
+|---|---|
+| `NETEASE_COOKIE` | 网易云搜索/取地址都带上它。**有会员时，VIP 曲能拿到真实音频** |
+| `KUGOU_COOKIE` | 可选；酷狗的接口会带上，对部分付费曲有用（未逐一验证） |
+
+### 怎么拿到网易云 Cookie
+
+1. 浏览器打开 `https://music.163.com` 并登录；
+2. F12 → **Network**（网络）→ 刷新页面；
+3. 随便点一条 `music.163.com` 的请求 → **Request Headers** → `Cookie`；
+4. 右键 → **Copy value**，形如 `MUSIC_U=xxxx; __csrf=yyyy; NMTID=zzz;`；
+5. 粘到 Worker 的 `NETEASE_COOKIE` secret 里，Deploy/保存后立即生效，不需要改代码。
+
+> ⚠️ Cookie 等于账号登录态：只放在**你自己的** Worker 里，别贴给第三方接口、别进 Git。
+> 换设备/改密码会失效，失效后重新复制一次即可。
+> 另外：数字专辑（需单独购买）即使有会员也拿不到，接口会返回「可能受限制」。
+
+> 在 IIROSE 里按 F12 有时会被站点的反调试搞到页面反复刷新 —— 那和本项目无关。
+> 配中转不需要 F12（用右下角 ⚙），只有复制网易云 Cookie 才需要用一次 DevTools（在 music.163.com 上用）。
 
 ## 热键与模式
 
@@ -253,7 +280,8 @@ jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓�
 
 | 版本 | 内容 |
 |---|---|
-| v0.3.0 | 翻页；酷狗 / B 站（需配中转 `relay/worker.js`）；B 站音频走中转补 Referer |
+| v0.3.1 | 网易云也走中转（可配 NETEASE_COOKIE 解锁会员曲）；面板右下角 ⚙ 直接配中转，不用 F12 |
+| v0.3.0 | 翻页；酷狗 / B 站（需配中转 elay/worker.js）；B 站音频走中转补 Referer |
 | v0.2.0 | 首个 IIROSE 版：搜索、点播两帧、房间播放回显、试听模式、兜底指令 |
 
 ## 已知限制
