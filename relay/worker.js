@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 点歌台中转（可选）—— 让 IIROSE 版也能搜酷狗 / B 站。
  *
  * 为什么必须有它：
@@ -307,6 +307,10 @@ async function proxyAudio(request, target, platform) {
 
 // ------------------------------------------------------------------ 路由
 
+/** 播放地址缓存：地址本身带时效（约 20 分钟），缓存 5 分钟既省上游调用又不至于过期 */
+const PLAY_CACHE_MS = 5 * 60 * 1000;
+const playCache = new Map();
+
 const PLATFORMS = {
   netease: { search: neteaseSearch, playurl: neteasePlayUrl },
   kugou: { search: kugouSearch, playurl: kugouPlayUrl },
@@ -367,7 +371,24 @@ export const worker = {
       if (url.pathname === '/playurl') {
         const id = (p.get('id') || '').trim();
         if (!id) return json({ ok: false, error: '缺少 id' }, 400);
+
+        // 播放地址带时效（约 20 分钟），缓存 5 分钟够用，还能少打几次上游
+        const cacheKey = platform + ':' + id;
+        const hit = playCache.get(cacheKey);
+        if (hit && Date.now() - hit.at < PLAY_CACHE_MS) {
+          return json({ ok: true, data: hit.value, cached: true });
+        }
+
         const data = await impl.playurl(id, env);
+
+        // 酷狗从 Cloudflare 出口很容易被限流，给一条能照着做的提示
+        if (data && data.playable === false && /频繁|too\s*frequent/i.test(String(data.note || ''))) {
+          data.note = '酷狗这边限流了（Cloudflare 出口 IP 被判定为高频）。等 1–2 分钟再试；要稳定就把中转部署到国内云函数。';
+          data.rateLimited = true;
+        }
+
+        if (data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: data });
+
         // B 站音频在部分 CDN 节点上要 Referer，走本中转最稳；酷狗直链匿名可取，不绕这一圈
         if (platform === 'bilibili' && data && data.playable && data.streamUrl) {
           data.rawStreamUrl = data.streamUrl;
