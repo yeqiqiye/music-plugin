@@ -136,7 +136,9 @@ async function kugouSearch({ keyword, limit, page }) {
   const data = await fetchJson(url, { referer: 'https://www.kugou.com/' });
   const list = data?.data?.lists ?? [];
   return list.map((s) => {
-    const vip = Number(s.Privilege ?? 0) > 0 || Number(s.PayType ?? 0) > 0;
+    // 注意：song_search_v2 现在把 Privilege / PayType 一律返回 0，判断不出是否付费，
+    // 硬标「可听」会误导（其实点下去可能提示「需要付费」），所以这里给 null = 未知。
+    const vip = null;
     return {
       platform: 'kugou',
       // 酷狗要用 FileHash 才能换播放地址
@@ -161,7 +163,17 @@ async function kugouPlayUrl(id, env) {
     'https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=' + encodeURIComponent(id),
     { referer: 'https://www.kugou.com/', cookie },
   );
-  if (!data?.url) return { playable: false, reason: 'no-url', note: data?.error || '酷狗没有返回可播放地址' };
+  if (!data?.url) {
+    const raw = String(data?.error || '');
+    if (/付费|购买|vip/i.test(raw)) {
+      return {
+        playable: false,
+        reason: 'paid',
+        note: '酷狗把这首标为付费曲，接口直接拒绝（会员 Cookie 也无效）。换一个免费版本，或切到网易云源。',
+      };
+    }
+    return { playable: false, reason: 'no-url', note: raw || '酷狗没有返回可播放地址' };
+  }
   return {
     playable: true,
     streamUrl: https(data.url),

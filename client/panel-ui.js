@@ -294,9 +294,13 @@
     }
 
     function songRow(s, i) {
-      const badge = s.vip
-        ? '<span class="mk-tag mk-vip">VIP/付费</span>'
-        : '<span class="mk-tag mk-free">可听</span>';
+      // vip 可能是 null（平台没给这个字段，比如酷狗）——那就别标，省得误导「可听」其实要付费
+      const badge =
+        s.vip === true
+          ? '<span class="mk-tag mk-vip">VIP/付费</span>'
+          : s.vip === false
+            ? '<span class="mk-tag mk-free">可听</span>'
+            : '';
       const dur = fmtDur(s.durationMs);
       const sub = [s.artists && s.artists.join(' / '), s.album, dur].filter(Boolean).join(' · ');
       const link = s.url

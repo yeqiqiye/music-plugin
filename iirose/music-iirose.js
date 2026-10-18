@@ -1,5 +1,5 @@
-/*! music-iirose v0.3.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.3.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.2 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.2 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -296,9 +296,13 @@
     }
 
     function songRow(s, i) {
-      const badge = s.vip
-        ? '<span class="mk-tag mk-vip">VIP/付费</span>'
-        : '<span class="mk-tag mk-free">可听</span>';
+      // vip 可能是 null（平台没给这个字段，比如酷狗）——那就别标，省得误导「可听」其实要付费
+      const badge =
+        s.vip === true
+          ? '<span class="mk-tag mk-vip">VIP/付费</span>'
+          : s.vip === false
+            ? '<span class="mk-tag mk-free">可听</span>'
+            : '';
       const dur = fmtDur(s.durationMs);
       const sub = [s.artists && s.artists.join(' / '), s.album, dur].filter(Boolean).join(' · ');
       const link = s.url
@@ -813,7 +817,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.3.1';
+  var VERSION = '0.3.2';
 
   // 幂等：同一个页面被重复注入（改 URL 后没刷新、脚本列表里贴了两遍）时不挂第二套。
   if (window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.mounted) return;
