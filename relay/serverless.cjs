@@ -392,6 +392,31 @@ async function bilibiliPlayUrlInner(id, mode, headers) {
   // 而且这个地址是**客户端自己**去拿的（IIROSE 播得出来），不经过我们中转、不吃出口 IP。
   // 拿不到再退回 B 站官方 durl + /stream 中转。
   if (mode === 'video') {
+    // ① 先要一条 html5 直链：这类地址由**客户端自己**去 CDN 取，不经过我们中转，
+    //    也不绑我们的出口 IP（bilibilix 用的就是这条路）。播放器看到的域名是 *.bilivideo.com，
+    //    和 B 站原生的域名一致，最容易被接受。
+    try {
+      const hj = await fetchJson(
+        `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(id)}&cid=${cid}` +
+          '&fnval=1&qn=80&fourk=1&platform=html5&high_quality=1',
+        headers,
+      );
+      const hd = hj?.data?.durl?.[0];
+      if (hd && hd.url) {
+        return {
+          playable: true,
+          mode: 'video',
+          streamUrl: https(hd.url),
+          source: 'html5',
+          ext: 'mp4',
+          qn: hj?.data?.quality ?? null,
+          size: hd.size ?? null,
+          durationSec: dur,
+        };
+      }
+    } catch {
+      /* 落到下一条路 */
+    }
     const mirror = 'https://www.bilibilix.com/video/' + encodeURIComponent(id);
     try {
       const probe = await fetch(mirror, {
@@ -796,7 +821,14 @@ const worker = {
 
         // B 站的签名地址认出口 IP：这里只回「id + mode」，让 /stream 当场解析当场拉流。
         // 腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（多半 403）。
-        if (platform === 'bilibili' && data && data.playable && data.streamUrl && data.source !== 'bilibilix') {
+        if (
+          platform === 'bilibili' &&
+          data &&
+          data.playable &&
+          data.streamUrl &&
+          data.source !== 'bilibilix' &&
+          data.source !== 'html5'
+        ) {
           if (request.headers.get('x-mr-binary') === '0') {
             data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
           } else {
