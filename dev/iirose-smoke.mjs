@@ -453,6 +453,25 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
     aMedia = null;
   }
   check('音频轨媒体帧 b==0（B 站音频标记）', aMedia && aMedia.b === '=0', aMedia && String(aMedia.b));
+
+  // 原生模式：把链接当普通公屏消息发出去，让 IIROSE 自己解析
+  applySettings({ bili: 'native' });
+  await tick(30);
+  const beforeNative = sent.length;
+  panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(90);
+  check('原生模式只发 1 条消息', sent.length === beforeNative + 1, String(sent.length - beforeNative));
+  let nativeMsg = null;
+  try {
+    nativeMsg = JSON.parse(String(sent[beforeNative]));
+  } catch {
+    nativeMsg = null;
+  }
+  check(
+    '原生消息是「@ 视频链接」',
+    nativeMsg && /^@ https:\/\/www\.bilibili\.com\/video\//.test(String(nativeMsg.m)),
+    nativeMsg && String(nativeMsg.m).slice(0, 60),
+  );
   applySettings({});
 }
 

@@ -421,7 +421,7 @@
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
-      out.bili = out.bili === 'video' ? 'video' : 'audio';
+      out.bili = out.bili === 'video' ? 'video' : out.bili === 'native' ? 'native' : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -634,6 +634,7 @@
         '<div class="mk-chips">' +
         chip('bili', 'audio', '音频轨') +
         chip('bili', 'video', '视频') +
+        chip('bili', 'native', '原生') +
         '</div>' +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
@@ -1037,6 +1038,21 @@
       }
       playCurrent = song;
       const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+      // 原生模式：不经过中转，直接把链接发给 IIROSE 让它自己解析（自带点歌台就是这么做的）
+      if (playAs === 'native' && song.platform === 'bilibili') {
+        if (typeof opts.onNativeRequest !== 'function') throw new Error('当前环境不支持原生点播');
+        setNow(label, '交给 IIROSE 原生解析…');
+        refreshRows();
+        try {
+          await opts.onNativeRequest(song);
+          setNow(label, '已发给 IIROSE 原生点播 · 等房间解析');
+          setStat('已发送原生点播：' + esc(song.title));
+          return { played: true, mode: 'native' };
+        } catch (err) {
+          setNow(label, '原生点播失败：' + String((err && err.message) || err));
+          return { played: false, reason: String((err && err.message) || err) };
+        }
+      }
       setNow(label, '解析播放地址…' + (song.platform === 'bilibili' ? '（' + (asVideo ? '视频' : '音频轨') + '）' : ''));
       refreshRows();
       try {

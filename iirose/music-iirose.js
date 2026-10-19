@@ -1,5 +1,5 @@
-/*! music-iirose v0.4.3 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.4.3 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.4 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.4 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -423,7 +423,7 @@
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
-      out.bili = out.bili === 'video' ? 'video' : 'audio';
+      out.bili = out.bili === 'video' ? 'video' : out.bili === 'native' ? 'native' : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -636,6 +636,7 @@
         '<div class="mk-chips">' +
         chip('bili', 'audio', '音频轨') +
         chip('bili', 'video', '视频') +
+        chip('bili', 'native', '原生') +
         '</div>' +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
@@ -1039,6 +1040,21 @@
       }
       playCurrent = song;
       const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+      // 原生模式：不经过中转，直接把链接发给 IIROSE 让它自己解析（自带点歌台就是这么做的）
+      if (playAs === 'native' && song.platform === 'bilibili') {
+        if (typeof opts.onNativeRequest !== 'function') throw new Error('当前环境不支持原生点播');
+        setNow(label, '交给 IIROSE 原生解析…');
+        refreshRows();
+        try {
+          await opts.onNativeRequest(song);
+          setNow(label, '已发给 IIROSE 原生点播 · 等房间解析');
+          setStat('已发送原生点播：' + esc(song.title));
+          return { played: true, mode: 'native' };
+        } catch (err) {
+          setNow(label, '原生点播失败：' + String((err && err.message) || err));
+          return { played: false, reason: String((err && err.message) || err) };
+        }
+      }
       setNow(label, '解析播放地址…' + (song.platform === 'bilibili' ? '（' + (asVideo ? '视频' : '音频轨') + '）' : ''));
       refreshRows();
       try {
@@ -1798,7 +1814,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.4.3';
+  var VERSION = '0.4.4';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
@@ -2547,6 +2563,16 @@
       onRelayChange: function (url) {
         lsSet(LS.relay, url || '');
         diag.relay = url || null;
+      },
+      // 「原生」模式：把链接当普通公屏消息发出去，让 IIROSE 自己解析点播（和自带点歌台同一套）
+      onNativeRequest: function (song) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var link = song.url || 'https://www.bilibili.com/video/' + song.id;
+        var color = normColor(app.inputcolorhex);
+        app.socket.send(JSON.stringify({ m: '@ ' + link, mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastEnqueue = 'native: ' + link;
       },
       onSettingsChange: function (s) {
         applyEntrySettings(s);

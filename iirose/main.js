@@ -767,6 +767,16 @@
         lsSet(LS.relay, url || '');
         diag.relay = url || null;
       },
+      // 「原生」模式：把链接当普通公屏消息发出去，让 IIROSE 自己解析点播（和自带点歌台同一套）
+      onNativeRequest: function (song) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var link = song.url || 'https://www.bilibili.com/video/' + song.id;
+        var color = normColor(app.inputcolorhex);
+        app.socket.send(JSON.stringify({ m: '@ ' + link, mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastEnqueue = 'native: ' + link;
+      },
       onSettingsChange: function (s) {
         applyEntrySettings(s);
       },
