@@ -73,7 +73,9 @@ const xBtn = ball.querySelector('.mk-ball-x');
 xBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 check('点 × 后悬浮球隐藏', ball.style.display === 'none');
-check('隐藏状态被记住', window.localStorage.getItem('mk_iirose_ball_hidden') === '1');
+const afterHide = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('隐藏状态被记住（设置里 ball=false）', afterHide.ball === false, JSON.stringify(afterHide));
+check('隐藏悬浮球时双指上滑保持可用', afterHide.gesture === true, JSON.stringify(afterHide));
 
 // ---- 双指上滑：面板打开 + 悬浮球回来 ----
 const panelRoot = document.querySelector('.mk-root');
@@ -91,6 +93,7 @@ touch(document, 'touchend', []);
 await tick(60);
 check('双指上滑后打开面板', panelRoot.classList.contains('mk-open'));
 check('双指上滑后悬浮球恢复', ball.style.display !== 'none');
+check('恢复后被记回设置', JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}').ball === true);
 
 // ---- 单指上滑不该触发 ----
 const panel2 = document.querySelector('.mk-root');

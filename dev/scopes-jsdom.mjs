@@ -140,8 +140,35 @@ const css = window.document.querySelector('style[data-music-panel]').textContent
 check('有 <=640px 的媒体查询', css.includes('@media (max-width:640px)'));
 check('手机上不再整块隐藏操作按钮', !/\.mk-acts\{display:none\}/.test(css));
 check('手机上只隐藏次要链接', /\.mk-acts a\{display:none\}/.test(css));
+check('手机上不是整屏（底部抽屉）', css.includes('74dvh') && css.includes('border-radius:18px 18px 0 0'));
+check('有设置页样式', css.includes('.mk-set') && css.includes('.mk-sw'));
 check('有搜索范围样式', css.includes('.mk-scope'));
 check('有歌单/用户行样式', css.includes('.mk-entity'));
+
+// ---- 设置页：入口开关互斥 + 外观 ----
+rootEl.querySelector('[data-act=settings]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('打开设置页', Boolean(rootEl.querySelector('.mk-set')));
+check('有 4 个开关（悬浮球/双指/毛玻璃/紧凑）', rootEl.querySelectorAll('.mk-sw').length === 4, String(rootEl.querySelectorAll('.mk-sw').length));
+
+rootEl.querySelector('[data-set=ball]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+const savedSettings = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('关悬浮球后写进 localStorage', savedSettings.ball === false, JSON.stringify(savedSettings));
+check('关掉悬浮球时自动打开双指上滑', savedSettings.gesture === true, JSON.stringify(savedSettings));
+
+rootEl.querySelectorAll('[data-set-group]')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })); // 浅色
+await tick();
+check('切浅色后 root 带 data-theme=light', rootEl.getAttribute('data-theme') === 'light', String(rootEl.getAttribute('data-theme')));
+
+const accentBtn = Array.from(rootEl.querySelectorAll('[data-set-group]')).find((b) => b.dataset.setValue === 'violet');
+accentBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('切强调色后 root 带 data-accent=violet', rootEl.getAttribute('data-accent') === 'violet', String(rootEl.getAttribute('data-accent')));
+
+rootEl.querySelector('[data-act=settings-done]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('完成后回到列表', Boolean(rootEl.querySelector('.mk-entity') || rootEl.querySelector('.mk-song') || rootEl.querySelector('.mk-empty')));
 
 panel.dispose();
 console.log('');

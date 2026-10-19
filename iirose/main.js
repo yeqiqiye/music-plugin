@@ -55,6 +55,31 @@
     }
   }
 
+  // 与面板共用同一把 key：面板里改的开关，这里要能读到
+  var SETTINGS_KEY = 'mk_panel_settings';
+  var SETTINGS_DEFAULT = { ball: true, gesture: true, theme: 'dark', accent: 'blue', glass: false, compact: false };
+  function readSettings() {
+    var out = {};
+    for (var k in SETTINGS_DEFAULT) out[k] = SETTINGS_DEFAULT[k];
+    try {
+      var raw = window.localStorage.getItem(SETTINGS_KEY);
+      if (raw) {
+        var saved = JSON.parse(raw);
+        for (var j in saved) if (Object.prototype.hasOwnProperty.call(saved, j)) out[j] = saved[j];
+      }
+    } catch (e) {
+      /* 解析不了就用默认值 */
+    }
+    return out;
+  }
+  function writeSettings(next) {
+    try {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    } catch (e) {
+      /* 隐私模式写不进去 */
+    }
+  }
+
   function apiBase() {
     return String(ls(LS.api, API_DEFAULT)).replace(/\/+$/, '') || API_DEFAULT;
   }
@@ -652,6 +677,11 @@
       onModeChange: function (m) {
         lsSet(LS.mode, m);
       },
+      onSettingsChange: function (s) {
+        panelSettings = s;
+        if (s && s.ball) showBall();
+        else hideBall();
+      },
     });
 
     // ---------- 悬浮球：可拖动 / 可关闭 ----------
@@ -678,8 +708,14 @@
     }
     function showBall() {
       if (!ballEl) return;
-      lsSet(LS.ballHidden, '');
       ballEl.style.display = '';
+      // 双指上滑把球叫回来时，也要把设置改回去，不然刷新又藏起来了
+      var s = readSettings();
+      if (!s.ball) {
+        s.ball = true;
+        writeSettings(s);
+        panelSettings = s;
+      }
     }
     function hideBall() {
       if (!ballEl) return;
@@ -708,8 +744,9 @@
       '<span class="mk-ball-ico">♪</span><span class="mk-ball-x" title="隐藏悬浮球（双指上滑可以再叫出来）">×</span>';
     (doc.body || doc.documentElement).appendChild(ballEl);
 
+    var panelSettings = readSettings();
     var saved = ballSaved();
-    if (ls(LS.ballHidden, '') === '1') ballEl.style.display = 'none';
+    if (!panelSettings.ball) ballEl.style.display = 'none';
     if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') placeBall(saved.x, saved.y);
 
     var drag = null;
@@ -788,6 +825,12 @@
       ballX.addEventListener('click', function (ev) {
         ev.stopPropagation();
         ev.preventDefault();
+        var next = readSettings();
+        next.ball = false;
+        // 只允许关一个：悬浮球关了，就把双指上滑打开
+        if (!next.gesture) next.gesture = true;
+        panelSettings = next;
+        writeSettings(next);
         hideBall();
       });
     }
@@ -796,6 +839,7 @@
     // 手机上 Alt+T 用不了，悬浮球被关掉之后总得有个入口
     var gesture = null;
     function gestureStart(ev) {
+      if (!panelSettings || !panelSettings.gesture) return;
       if (ev.touches && ev.touches.length === 2) {
         gesture = {
           y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2,

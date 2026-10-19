@@ -1,5 +1,5 @@
-/*! music-iirose v0.3.4 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.3.4 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.5 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.5 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -26,6 +26,21 @@
 .mk-root{position:fixed;inset:0;z-index:2147483000;display:none;align-items:center;justify-content:center;
   font:14px/1.6 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;color:var(--mk-fg,#e9eef7)}
 .mk-root.mk-open{display:flex}
+/* ---- 外观设置：主题 / 强调色 / 毛玻璃 / 紧凑 ---- */
+.mk-root[data-theme=light]{--mk-bg:#f6f8fc;--mk-fg:#1b2432;--mk-dim:#5f6d82;--mk-line:#d7dfea;
+  --mk-input:#fff;--mk-btn:#eef2f8;--mk-accent:#2f6ea8}
+.mk-root[data-accent=teal]{--mk-accent:#2fb59a}
+.mk-root[data-accent=violet]{--mk-accent:#8a7cf0}
+.mk-root[data-accent=pink]{--mk-accent:#e26aa8}
+.mk-root[data-accent=blue]{--mk-accent:#4a8fd6}
+.mk-root.mk-glass .mk-backdrop{backdrop-filter:blur(12px);background:rgba(6,9,14,.42)}
+.mk-root.mk-glass .mk-card{backdrop-filter:blur(18px)}
+.mk-root.mk-compact .mk-song{padding:4px 10px}
+.mk-root.mk-compact .mk-sub{font-size:11px}
+.mk-root .mk-tab.mk-on,.mk-root .mk-scope.mk-on{border-color:var(--mk-accent,#2f6ea8)}
+.mk-root .mk-input:focus,.mk-root .mk-entity:hover{border-color:var(--mk-accent,#2f6ea8)}
+.mk-root .mk-song.mk-playing{border-color:var(--mk-accent,#2f6ea8)}
+.mk-root .mk-pager button:hover:not(:disabled){border-color:var(--mk-accent,#2f6ea8)}
 .mk-backdrop{position:absolute;inset:0;background:rgba(6,9,14,.62);backdrop-filter:blur(3px)}
 .mk-card{position:relative;width:min(1000px,94vw);height:min(720px,90vh);display:flex;flex-direction:column;
   background:var(--mk-bg,#141a24);border:1px solid var(--mk-line,#2b3444);border-radius:16px;overflow:hidden;
@@ -122,9 +137,35 @@
 .mk-detail-head{display:flex;gap:12px;align-items:center;padding:10px 8px 12px;border-bottom:1px solid var(--mk-line,#2b3444);margin-bottom:8px}
 .mk-detail-head .mk-cover{width:58px;height:58px}
 .mk-detail-acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+/* ---------- 设置页 ---------- */
+.mk-set{padding:14px 16px 20px;max-width:620px}
+.mk-set h3{margin:0 0 10px;font-size:15px}
+.mk-set-group{margin-bottom:14px}
+.mk-set-group h4{margin:0 0 6px;font-size:11.5px;color:var(--mk-dim,#93a1b8);font-weight:700;letter-spacing:.4px}
+.mk-set-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--mk-line,#2b3444)}
+.mk-set-row:last-child{border-bottom:0}
+.mk-set-row .mk-meta{flex:1;min-width:0}
+.mk-set-row b{display:block;font-weight:600;font-size:13.5px}
+.mk-set-row small{display:block;color:var(--mk-dim,#93a1b8);font-size:11.5px;line-height:1.45}
+.mk-sw{width:46px;height:26px;border-radius:999px;border:1px solid var(--mk-line,#2b3444);background:#1e2836;
+  position:relative;cursor:pointer;flex:none;transition:.15s;padding:0}
+.mk-sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#93a1b8;transition:.15s}
+.mk-sw.mk-on{background:var(--mk-accent,#2f6ea8);border-color:var(--mk-accent,#2f6ea8)}
+.mk-sw.mk-on::after{left:23px;background:#fff}
+.mk-chips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px}
+.mk-chip{border:1px solid var(--mk-line,#2b3444);border-radius:999px;padding:6px 12px;font-size:12.5px;background:#1e2836;
+  color:inherit;cursor:pointer;font-family:inherit}
+.mk-chip.mk-on{border-color:var(--mk-accent,#2f6ea8);color:#eaf3ff}
+.mk-chip .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.mk-set .mk-note{color:var(--mk-dim,#93a1b8);font-size:11.5px;margin:8px 0 0;line-height:1.5}
 @media (max-width:640px){
-  .mk-card{width:100vw;height:100dvh;border-radius:0}
-  .mk-head{padding:10px 12px;gap:8px}
+  /* 手机上是「底部抽屉」：占中长高度，不再铺满整屏 */
+  .mk-root{align-items:flex-end}
+  .mk-card{width:100vw;height:min(74dvh,680px);min-height:360px;border-radius:18px 18px 0 0;border-bottom:0;
+    box-shadow:0 -12px 40px rgba(0,0,0,.5)}
+  .mk-card::before{content:"";position:absolute;left:50%;top:7px;transform:translateX(-50%);width:44px;height:4px;
+    border-radius:2px;background:var(--mk-line,#3a4657);opacity:.9}
+  .mk-head{padding:16px 12px 10px;gap:8px}
   .mk-title{font-size:15px}
   .mk-title small{display:none}
   .mk-search{padding:8px 12px 6px;gap:8px}
@@ -186,6 +227,7 @@
           <div class="mk-right">
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
+            <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>
             <button class="mk-btn mk-ghost mk-close" data-act="close" title="关闭 (Esc)">✕</button>
           </div>
         </div>
@@ -287,6 +329,105 @@
     let listKind = 'song';
     // 打开歌单/用户详情前记一下原来的列表，返回时还原
     let detailBack = null;
+
+    // ---------- 设置（外观 / 入口开关）----------
+    // 同一份设置也存 localStorage：宿主（IIROSE）读同一把 key 来决定悬浮球和手势要不要挂
+    const SETTINGS_KEY = opts.settingsKey || 'mk_panel_settings';
+    const SETTINGS_DEFAULT = { ball: true, gesture: true, theme: 'dark', accent: 'blue', glass: false, compact: false };
+    let settings = Object.assign({}, SETTINGS_DEFAULT, opts.settings || {});
+    (function loadSettings() {
+      try {
+        const raw = window.localStorage.getItem(SETTINGS_KEY);
+        if (raw) settings = Object.assign({}, SETTINGS_DEFAULT, JSON.parse(raw));
+      } catch {
+        /* 隐私模式读不到就用默认值 */
+      }
+    })();
+
+    function notifySettings() {
+      if (typeof opts.onSettingsChange !== 'function') return;
+      try {
+        opts.onSettingsChange(settings);
+      } catch {
+        /* 宿主应用失败不影响面板 */
+      }
+    }
+
+    function saveSettings() {
+      try {
+        window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      } catch {
+        /* 写不进去就算了，当前会话仍然生效 */
+      }
+      notifySettings();
+    }
+
+    function applySettings() {
+      root.setAttribute('data-theme', settings.theme === 'light' ? 'light' : 'dark');
+      root.setAttribute('data-accent', settings.accent || 'blue');
+      root.classList.toggle('mk-glass', Boolean(settings.glass));
+      root.classList.toggle('mk-compact', Boolean(settings.compact));
+    }
+
+    /**
+     * 开关：悬浮球 / 双指上滑「只允许关一个」——
+     * 关掉其中一个时自动把另一个打开，避免两个入口全没了、面板再也叫不出来。
+     */
+    function setSwitch(name, on) {
+      const next = Object.assign({}, settings);
+      next[name] = Boolean(on);
+      if (!next.ball && !next.gesture) {
+        if (name === 'ball') next.gesture = true;
+        else next.ball = true;
+      }
+      settings = next;
+      saveSettings();
+      applySettings();
+      renderSettings();
+      if (!settings.ball || !settings.gesture) {
+        setStat(settings.ball ? '已关闭双指上滑（悬浮球还能用）' : '已隐藏悬浮球（双指上滑还能用）');
+      }
+    }
+
+    function renderSettings() {
+      const sw = (name, label, desc) =>
+        `<div class="mk-set-row"><div class="mk-meta"><b>${label}</b><small>${desc}</small></div>` +
+        `<button class="mk-sw${settings[name] ? ' mk-on' : ''}" data-set="${name}" role="switch" ` +
+        `aria-checked="${settings[name] ? 'true' : 'false'}" title="点击切换"></button></div>`;
+      const chip = (group, value, label, color) =>
+        `<button class="mk-chip${settings[group] === value ? ' mk-on' : ''}" data-set-group="${group}" data-set-value="${value}">` +
+        (color ? `<span class="dot" style="background:${color}"></span>` : '') +
+        label +
+        '</button>';
+      elBody.innerHTML =
+        '<div class="mk-set">' +
+        '<h3>设置</h3>' +
+        '<div class="mk-set-group"><h4>入口</h4>' +
+        sw('ball', '悬浮球', '右下角 ♪，可拖动；关掉后双指上滑还留着') +
+        sw('gesture', '双指上滑', '手机上从页面底部双指向上滑，打开点歌台') +
+        '<p class="mk-note">两个入口至少留一个：关掉其中一个，另一个会自动打开。</p></div>' +
+        '<div class="mk-set-group"><h4>外观</h4>' +
+        '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>深色更配房间，浅色白天看着舒服</small></div></div>' +
+        '<div class="mk-chips">' +
+        chip('theme', 'dark', '深色') +
+        chip('theme', 'light', '浅色') +
+        '</div>' +
+        '<div class="mk-set-row"><div class="mk-meta"><b>强调色</b><small>选中项、播放中、按钮描边</small></div></div>' +
+        '<div class="mk-chips">' +
+        chip('accent', 'blue', '蓝', '#4a8fd6') +
+        chip('accent', 'teal', '青', '#2fb59a') +
+        chip('accent', 'violet', '紫', '#8a7cf0') +
+        chip('accent', 'pink', '粉', '#e26aa8') +
+        '</div>' +
+        sw('glass', '毛玻璃背景', '面板半透明 + 背景模糊，性能差的手机建议关') +
+        sw('compact', '紧凑列表', '一行更矮，一屏能多看几首') +
+        '</div>' +
+        '<div class="mk-set-row"><div class="mk-meta"><b>完成</b><small>回到搜索</small></div>' +
+        '<button class="mk-btn mk-primary" data-act="settings-done">完成</button></div>' +
+        '</div>';
+      if (elPager.classList) elPager.classList.remove('mk-on');
+      setStat('设置');
+    }
 
     // 版本号显示在标题旁边：刷新后一眼能确认「页面里跑的是新代码」。
     const elVer = $('[data-el=ver]');
@@ -853,6 +994,11 @@
         }
         return;
       }
+      // 点遮罩关面板（手机上比找 ✕ 顺手）
+      if (ev.target && ev.target.classList && ev.target.classList.contains('mk-backdrop')) {
+        close();
+        return;
+      }
       const scopeBtn = ev.target.closest('[data-scope]');
       if (scopeBtn) {
         scope = scopeBtn.dataset.scope || 'song';
@@ -874,10 +1020,37 @@
         if (u) await openUser(u);
         return;
       }
+      const setSwitchBtn = ev.target.closest('[data-set]');
+      if (setSwitchBtn) {
+        const n = setSwitchBtn.dataset.set;
+        setSwitch(n, !settings[n]);
+        return;
+      }
+      const setChipBtn = ev.target.closest('[data-set-group]');
+      if (setChipBtn) {
+        const patch = {};
+        patch[setChipBtn.dataset.setGroup] = setChipBtn.dataset.setValue;
+        settings = Object.assign({}, settings, patch);
+        saveSettings();
+        applySettings();
+        renderSettings();
+        return;
+      }
       const act = ev.target.closest('[data-act]');
       if (act) {
         const name = act.dataset.act;
-        if (name === 'batch') queueAll(lastResults);
+        if (name === 'settings') renderSettings();
+        else if (name === 'settings-done') {
+          if (lastResults.length) {
+            renderList(lastResults, listKind, labelOf(current) + ' · ' + lastResults.length + ' 条');
+            renderPager();
+            setStat(lastResults.length + ' 条 · ' + esc(labelOf(current)));
+          } else {
+            elBody.innerHTML = '<div class="mk-empty">输入关键词，回车搜索。</div>';
+            setStat('等待搜索');
+          }
+        }
+        else if (name === 'batch') queueAll(lastResults);
         else if (name === 'back') goBack();
         else if (name === 'close') close();
         else if (name === 'search') doSearch();
@@ -955,6 +1128,7 @@
 
     function open() {
       root.classList.add('mk-open');
+      applySettings();
       renderTabs();
       renderScopes();
       if (elKw && elKw.placeholder !== undefined) elKw.placeholder = placeholderOf();
@@ -1047,7 +1221,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.3.4';
+  var VERSION = '0.3.5';
 
   // 幂等：同一个页面被重复注入（改 URL 后没刷新、脚本列表里贴了两遍）时不挂第二套。
   if (window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.mounted) return;
@@ -1082,6 +1256,31 @@
       window.localStorage.setItem(key, value);
     } catch (e) {
       /* 隐私模式写不进去就算了 */
+    }
+  }
+
+  // 与面板共用同一把 key：面板里改的开关，这里要能读到
+  var SETTINGS_KEY = 'mk_panel_settings';
+  var SETTINGS_DEFAULT = { ball: true, gesture: true, theme: 'dark', accent: 'blue', glass: false, compact: false };
+  function readSettings() {
+    var out = {};
+    for (var k in SETTINGS_DEFAULT) out[k] = SETTINGS_DEFAULT[k];
+    try {
+      var raw = window.localStorage.getItem(SETTINGS_KEY);
+      if (raw) {
+        var saved = JSON.parse(raw);
+        for (var j in saved) if (Object.prototype.hasOwnProperty.call(saved, j)) out[j] = saved[j];
+      }
+    } catch (e) {
+      /* 解析不了就用默认值 */
+    }
+    return out;
+  }
+  function writeSettings(next) {
+    try {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    } catch (e) {
+      /* 隐私模式写不进去 */
     }
   }
 
@@ -1682,6 +1881,11 @@
       onModeChange: function (m) {
         lsSet(LS.mode, m);
       },
+      onSettingsChange: function (s) {
+        panelSettings = s;
+        if (s && s.ball) showBall();
+        else hideBall();
+      },
     });
 
     // ---------- 悬浮球：可拖动 / 可关闭 ----------
@@ -1708,8 +1912,14 @@
     }
     function showBall() {
       if (!ballEl) return;
-      lsSet(LS.ballHidden, '');
       ballEl.style.display = '';
+      // 双指上滑把球叫回来时，也要把设置改回去，不然刷新又藏起来了
+      var s = readSettings();
+      if (!s.ball) {
+        s.ball = true;
+        writeSettings(s);
+        panelSettings = s;
+      }
     }
     function hideBall() {
       if (!ballEl) return;
@@ -1738,8 +1948,9 @@
       '<span class="mk-ball-ico">♪</span><span class="mk-ball-x" title="隐藏悬浮球（双指上滑可以再叫出来）">×</span>';
     (doc.body || doc.documentElement).appendChild(ballEl);
 
+    var panelSettings = readSettings();
     var saved = ballSaved();
-    if (ls(LS.ballHidden, '') === '1') ballEl.style.display = 'none';
+    if (!panelSettings.ball) ballEl.style.display = 'none';
     if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') placeBall(saved.x, saved.y);
 
     var drag = null;
@@ -1818,6 +2029,12 @@
       ballX.addEventListener('click', function (ev) {
         ev.stopPropagation();
         ev.preventDefault();
+        var next = readSettings();
+        next.ball = false;
+        // 只允许关一个：悬浮球关了，就把双指上滑打开
+        if (!next.gesture) next.gesture = true;
+        panelSettings = next;
+        writeSettings(next);
         hideBall();
       });
     }
@@ -1826,6 +2043,7 @@
     // 手机上 Alt+T 用不了，悬浮球被关掉之后总得有个入口
     var gesture = null;
     function gestureStart(ev) {
+      if (!panelSettings || !panelSettings.gesture) return;
       if (ev.touches && ev.touches.length === 2) {
         gesture = {
           y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2,
