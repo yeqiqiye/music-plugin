@@ -417,9 +417,11 @@
     var link = song.url || '';
     var isVideo = Boolean(info && info.mode === 'video');
     var bitrate = isVideo ? Number(info && info.qn) || '' : Math.round((Number(info && info.bitrate) || 320000) / 1000);
-    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站音频 =0、B 站视频 !3 / *3
-    var mark = isVideo ? '!3' : TYPE_MARK[song.platform] || '@0';
-    var cardMark = isVideo ? '*3' : mark;
+    // 音频用各平台标记（@0 网易 / @4 酷狗 / =0 B 站音频）；
+    // 视频统一用「通用视频」=1：我们给的是一条普通 mp4 直链，不是 B 站播放器内部的地址，
+    // 用 !3 会让对端按「B 站视频」去解析/校验，反而放不出来。
+    var mark = isVideo ? '=1' : TYPE_MARK[song.platform] || '@0';
+    var cardMark = isVideo ? '=1' : mark;
 
     var media =
       '&1' +

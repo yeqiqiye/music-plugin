@@ -437,8 +437,8 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
   } catch {
     vCard = null;
   }
-  check('视频媒体帧 b=!3', vMedia && vMedia.b === '!3', vMedia && String(vMedia.b));
-  check('视频卡片以 m__4*3> 开头', vCard && String(vCard.m).startsWith('m__4*3>'), vCard && String(vCard.m).slice(0, 18));
+  check('视频媒体帧 b==1（通用视频，不是 B 站专用 !3）', vMedia && vMedia.b === '=1', vMedia && String(vMedia.b));
+  check('视频卡片以 m__4=1> 开头', vCard && String(vCard.m).startsWith('m__4=1>'), vCard && String(vCard.m).slice(0, 18));
   check('视频卡片带时长文本', vCard && /4分/.test(String(vCard.m)), vCard && String(vCard.m).slice(-10));
 
   // 行内按钮：这一条换回音频轨
