@@ -398,7 +398,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, bili: 'audio', bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bili: 'video', bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -582,6 +582,10 @@
       try {
         const h = await fetch(base + '/health', { cache: 'no-store' }).then((r) => r.json());
         lines.push('health: ' + (h && h.ok ? 'OK · ' + (h.platforms || []).join('/') : '失败'));
+        // 老版本中转没有 features：直接点出来，避免对着旧地址反复试
+        if (h && h.ok && !(Array.isArray(h.features) && h.features.indexOf('bilibili-video') >= 0)) {
+          lines.push('⚠ 这台中转是老版本（不支持 B 站视频），请换成新版地址');
+        }
       } catch (err) {
         lines.push('health: 连不上（' + String((err && err.message) || err) + '）');
       }

@@ -695,7 +695,15 @@ export const worker = {
         });
       }
 
-      if (url.pathname === '/health') return json({ ok: true, platforms: Object.keys(PLATFORMS) });
+      if (url.pathname === '/health') {
+        // features 让客户端判断「这台中转是不是新版」：老版本没有这个字段，
+        // 面板就能提示「中转过旧、不支持 B 站视频」，省得对着旧地址反复试。
+        return json({
+          ok: true,
+          platforms: Object.keys(PLATFORMS),
+          features: ['bilibili-video', 'html5-direct', 'stream-id'],
+        });
+      }
 
       if (!impl) return json({ ok: false, error: '不支持的平台：' + platform }, 400);
 

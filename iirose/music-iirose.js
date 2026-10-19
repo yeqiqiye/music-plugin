@@ -1,5 +1,5 @@
-/*! music-iirose v0.5.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.5.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.5.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.5.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -400,7 +400,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, bili: 'audio', bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bili: 'video', bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -584,6 +584,10 @@
       try {
         const h = await fetch(base + '/health', { cache: 'no-store' }).then((r) => r.json());
         lines.push('health: ' + (h && h.ok ? 'OK · ' + (h.platforms || []).join('/') : '失败'));
+        // 老版本中转没有 features：直接点出来，避免对着旧地址反复试
+        if (h && h.ok && !(Array.isArray(h.features) && h.features.indexOf('bilibili-video') >= 0)) {
+          lines.push('⚠ 这台中转是老版本（不支持 B 站视频），请换成新版地址');
+        }
       } catch (err) {
         lines.push('health: 连不上（' + String((err && err.message) || err) + '）');
       }
@@ -1876,7 +1880,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.5.0';
+  var VERSION = '0.5.1';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
