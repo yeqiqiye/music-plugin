@@ -181,6 +181,7 @@ check('诊断能看出被注入过 2 次', window.__MUSIC_IIROSE__.instances ===
 
 const panelEl = window.document.querySelector('.mk-root');
 check('悬浮球已注入', Boolean(window.document.querySelector('.mk-iirose-ball')));
+check('悬浮球上没有 ×（关闭入口统一到设置页）', !window.document.querySelector('.mk-iirose-ball .mk-ball-x'));
 
 // ---------------- 2. Alt+T ----------------
 const keydown = (init) =>

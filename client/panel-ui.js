@@ -65,8 +65,6 @@
 .mk-root[data-theme=light][data-accent=teal]{--mk-accent:#149e83}
 .mk-root[data-theme=light][data-accent=violet]{--mk-accent:#6a5be0}
 .mk-root[data-theme=light][data-accent=pink]{--mk-accent:#d24b8c}
-.mk-root.mk-glass .mk-backdrop{backdrop-filter:blur(12px);background:rgba(6,9,14,.42)}
-.mk-root.mk-glass .mk-card{backdrop-filter:blur(18px)}
 .mk-root.mk-compact .mk-song{padding:4px 10px}
 .mk-root.mk-compact .mk-sub{font-size:11px}
 .mk-root .mk-tab.mk-on,.mk-root .mk-scope.mk-on{border-color:var(--mk-accent)}
@@ -212,14 +210,13 @@
 .mk-hidden{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none}
 .mk-diag{color:var(--mk-dim);font-size:11px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--mk-line);line-height:1.6}
 @media (max-width:640px){
-  /* 手机上是「底部抽屉」：占中长高度，不再铺满整屏 */
-  .mk-root{align-items:flex-end}
-  .mk-card{width:100vw;height:min(74dvh,680px);min-height:360px;border-radius:18px 18px 0 0;border-bottom:0;
-    box-shadow:0 -12px 40px rgba(0,0,0,.5)}
-  .mk-root[data-theme=light] .mk-card{box-shadow:0 -12px 40px rgba(20,32,52,.18)}
-  .mk-card::before{content:"";position:absolute;left:50%;top:7px;transform:translateX(-50%);width:44px;height:4px;
-    border-radius:2px;background:var(--mk-line);opacity:.9;z-index:2}
-  .mk-head{padding:16px 12px 10px;gap:8px}
+  /* 手机上也是「居中窗口」，不是底部抽屉：整块面板可以按住标题栏拖动 */
+  .mk-root{align-items:center;justify-content:center}
+  .mk-card{width:min(94vw,560px);height:min(80dvh,660px);min-height:320px;border-radius:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .mk-root[data-theme=light] .mk-card{box-shadow:0 20px 60px rgba(20,32,52,.2)}
+  .mk-head{cursor:move;cursor:grab;touch-action:none;padding:14px 12px 10px;gap:8px}
+  .mk-head:active{cursor:grabbing}
   .mk-title{font-size:15px}
   .mk-title small{display:none}
   .mk-search{padding:8px 12px 6px;gap:8px}
@@ -349,6 +346,9 @@
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     });
     const elBody = $('[data-el=body]') || stub();
+    const elCard = root.querySelector('.mk-card');
+    // 手机端「居中窗口」的拖动位移：只在本次页面会话里记着，不写 localStorage
+    const cardOffset = { x: 0, y: 0 };
     const elPager = $('[data-el=pager]') || stub();
     const elTabs = $('[data-el=tabs]') || stub();
     const elScopes = $('[data-el=scopes]') || null;
@@ -396,7 +396,7 @@
     const SETTINGS_KEY = opts.settingsKey || 'mk_panel_settings';
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
-      ball: true, gesture: true, theme: 'auto', accent: 'blue', glass: false, compact: false,
+      ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
       bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
@@ -416,7 +416,8 @@
       if (ACCENTS.indexOf(out.accent) < 0) out.accent = 'blue';
       out.ball = out.ball !== false;
       out.gesture = out.gesture !== false;
-      out.glass = Boolean(out.glass);
+      // 两个入口不能同时是关的：老数据/手改 localStorage 弄成双关时，把球放回来兜底
+      if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
@@ -499,22 +500,20 @@
     function applySettings() {
       root.setAttribute('data-theme', resolvedTheme());
       root.setAttribute('data-accent', settings.accent || 'blue');
-      root.classList.toggle('mk-glass', Boolean(settings.glass));
       root.classList.toggle('mk-compact', Boolean(settings.compact));
       applyBackground();
     }
 
     /**
-     * 开关：悬浮球 / 双指上滑「只允许关一个」——
-     * 关掉其中一个时自动把另一个打开，避免两个入口全没了、面板再也叫不出来。
+     * 开关：悬浮球 / 双指上滑 各自独立，但**不能两个都关**（不然手机上面板就叫不出来）。
+     * 以前是「关一个自动开另一个」，用起来像自己变回去了；现在改成直接拒绝并说明原因。
      */
     function setSwitch(name, on) {
       const next = Object.assign({}, settings, { [name]: Boolean(on) });
-      if (name === 'ball' || name === 'gesture') {
-        if (!next.ball && !next.gesture) {
-          if (name === 'ball') next.gesture = true;
-          else next.ball = true;
-        }
+      if ((name === 'ball' || name === 'gesture') && !next.ball && !next.gesture) {
+        renderSettings();
+        setStat('至少留一个入口：先把「' + (name === 'ball' ? '双指上滑' : '悬浮球') + '」打开，再关这个');
+        return;
       }
       settings = normalizeSettings(next);
       const ok = saveSettings();
@@ -582,7 +581,7 @@
         '<div class="mk-set-group"><h4>入口</h4>' +
         sw('ball', '悬浮球', '右下角 ♪，可拖动；关掉后双指上滑还留着') +
         sw('gesture', '双指上滑', '手机上双指向上滑开面板；关掉会真的卸载监听') +
-        '<p class="mk-note">两个入口至少留一个：关掉其中一个，另一个会自动打开。</p></div>' +
+        '<p class="mk-note">两个入口至少留一个：想关掉这个，先把另一个打开（不会再自动帮你打开别的）。</p></div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
@@ -597,7 +596,6 @@
         chip('accent', 'violet', '紫', '#8a7cf0') +
         chip('accent', 'pink', '粉', '#e26aa8') +
         '</div>' +
-        sw('glass', '毛玻璃背景', '面板半透明 + 背景模糊，性能差的手机建议关') +
         sw('compact', '紧凑列表', '一行更矮，一屏能多看几首') +
         '</div>' +
         '<div class="mk-set-group"><h4>背景</h4>' +
@@ -1276,6 +1274,102 @@
         session = null;
       }
       applyLoginState();
+    }
+
+    // ---- 拖动面板（手机上是居中窗口，按住标题栏可以挪；位置只在本次页面会话里记着） ----
+    function isMobileWidth() {
+      try {
+        if (window.matchMedia && window.matchMedia('(max-width:640px)').matches) return true;
+      } catch {
+        /* 没有 matchMedia 就退回窗口宽度 */
+      }
+      return (window.innerWidth || 0) <= 640;
+    }
+    function applyCardOffset() {
+      if (!elCard || !elCard.style) return;
+      elCard.style.transform =
+        cardOffset.x === 0 && cardOffset.y === 0
+          ? ''
+          : 'translate(' + Math.round(cardOffset.x) + 'px,' + Math.round(cardOffset.y) + 'px)';
+    }
+    function clampCardOffset() {
+      if (!elCard || typeof elCard.getBoundingClientRect !== 'function') return;
+      const r = elCard.getBoundingClientRect();
+      // 还没布局（隐藏 / jsdom）时 rect 全是 0，别拿它瞎夹
+      if (!r.width || !r.height) return;
+      const vw = window.innerWidth || 360;
+      const vh = window.innerHeight || 640;
+      const pad = 8;
+      let dx = 0;
+      let dy = 0;
+      if (r.left < pad) dx = pad - r.left;
+      else if (r.right > vw - pad) dx = vw - pad - r.right;
+      if (r.top < pad) dy = pad - r.top;
+      else if (r.bottom > vh - pad) dy = vh - pad - r.bottom;
+      if (dx || dy) {
+        cardOffset.x += dx;
+        cardOffset.y += dy;
+        applyCardOffset();
+      }
+    }
+    let dragState = null;
+    function dragPoint(ev) {
+      if (ev.touches && ev.touches.length) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+      return { x: ev.clientX, y: ev.clientY };
+    }
+    function onCardDown(ev) {
+      if (!elCard || !isMobileWidth()) return;
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      if (t.closest('button') || t.closest('a') || t.closest('input') || t.closest('select')) return;
+      if (!t.closest('.mk-head')) return;
+      const p = dragPoint(ev);
+      dragState = { sx: p.x, sy: p.y, ox: cardOffset.x, oy: cardOffset.y, moved: false };
+      if (elCard.classList) elCard.classList.add('mk-dragging');
+      if (elCard.setPointerCapture && ev.pointerId != null) {
+        try {
+          elCard.setPointerCapture(ev.pointerId);
+        } catch {
+          /* 老 WebView 不支持 */
+        }
+      }
+    }
+    function onCardMove(ev) {
+      if (!dragState) return;
+      const p = dragPoint(ev);
+      const dx = p.x - dragState.sx;
+      const dy = p.y - dragState.sy;
+      if (!dragState.moved && Math.abs(dx) + Math.abs(dy) > 5) dragState.moved = true;
+      if (!dragState.moved) return;
+      if (ev.cancelable) ev.preventDefault();
+      cardOffset.x = dragState.ox + dx;
+      cardOffset.y = dragState.oy + dy;
+      applyCardOffset();
+    }
+    function onCardUp() {
+      if (!dragState) return;
+      const moved = dragState.moved;
+      dragState = null;
+      if (elCard && elCard.classList) elCard.classList.remove('mk-dragging');
+      if (moved) clampCardOffset();
+    }
+    if (elCard) {
+      if (window.PointerEvent) {
+        elCard.addEventListener('pointerdown', onCardDown);
+        elCard.addEventListener('pointermove', onCardMove);
+        elCard.addEventListener('pointerup', onCardUp);
+        elCard.addEventListener('pointercancel', onCardUp);
+      } else {
+        elCard.addEventListener('touchstart', onCardDown, { passive: true });
+        elCard.addEventListener('touchmove', onCardMove, { passive: false });
+        elCard.addEventListener('touchend', onCardUp);
+        elCard.addEventListener('mousedown', onCardDown);
+      }
+      try {
+        window.addEventListener('resize', clampCardOffset);
+      } catch {
+        /* 忽略 */
+      }
     }
 
     // ---- 事件 ----

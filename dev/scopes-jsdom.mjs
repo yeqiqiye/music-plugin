@@ -140,7 +140,9 @@ const css = window.document.querySelector('style[data-music-panel]').textContent
 check('有 <=640px 的媒体查询', css.includes('@media (max-width:640px)'));
 check('手机上不再整块隐藏操作按钮', !/\.mk-acts\{display:none\}/.test(css));
 check('手机上只隐藏次要链接', /\.mk-acts a\{display:none\}/.test(css));
-check('手机上不是整屏（底部抽屉）', css.includes('74dvh') && css.includes('border-radius:18px 18px 0 0'));
+check('手机上不是底部抽屉（居中窗口）', !/\.mk-root\{align-items:flex-end\}/.test(css) && css.includes('width:min(94vw,560px)'));
+check('手机上面板可拖动（标题栏 cursor:move + touch-action）', /\.mk-head\{[^}]*cursor:move/.test(css) && css.includes('touch-action:none'));
+check('毛玻璃开关已去掉', !css.includes('mk-glass'));
 check('有设置页样式', css.includes('.mk-set') && css.includes('.mk-sw'));
 check('有搜索范围样式', css.includes('.mk-scope'));
 check('有歌单/用户行样式', css.includes('.mk-entity'));
@@ -161,8 +163,8 @@ await tick();
 check('打开设置页', Boolean(rootEl.querySelector('.mk-set')));
 const switchNames = Array.from(rootEl.querySelectorAll('.mk-sw')).map((b) => b.dataset.set);
 check(
-  '开关是 悬浮球/双指/毛玻璃/紧凑/背景模糊',
-  ['ball', 'gesture', 'glass', 'compact', 'bgBlur'].every((n) => switchNames.includes(n)),
+  '开关是 悬浮球/双指/紧凑/背景模糊（毛玻璃已去掉）',
+  ['ball', 'gesture', 'compact', 'bgBlur'].every((n) => switchNames.includes(n)) && !switchNames.includes('glass'),
   switchNames.join(','),
 );
 
@@ -170,14 +172,66 @@ rootEl.querySelector('[data-set=ball]').dispatchEvent(new window.MouseEvent('cli
 await tick();
 const savedSettings = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
 check('关悬浮球后写进 localStorage', savedSettings.ball === false, JSON.stringify(savedSettings));
-check('关掉悬浮球时自动打开双指上滑', savedSettings.gesture === true, JSON.stringify(savedSettings));
+check('关悬浮球不影响双指上滑', savedSettings.gesture === true, JSON.stringify(savedSettings));
 
-// 反过来：关双指上滑 → 悬浮球自动回来（但双指必须真的是 false）
+// 只剩双指一个入口时，再想关双指：直接拒绝，不偷偷把球打开（这就是「关了又自己回来」的根源）
 rootEl.querySelector('[data-set=gesture]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 const saved2 = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
-check('关双指后 gesture=false', saved2.gesture === false, JSON.stringify(saved2));
-check('关双指时悬浮球自动打开', saved2.ball === true, JSON.stringify(saved2));
+check('两个都关会被拒绝（gesture 仍为 true）', saved2.gesture === true, JSON.stringify(saved2));
+check('拒绝时不会偷偷把球打开', saved2.ball === false, JSON.stringify(saved2));
+check(
+  '拒绝时提示「至少留一个入口」',
+  /至少留一个入口/.test(rootEl.querySelector('[data-el=stat]').textContent),
+  rootEl.querySelector('[data-el=stat]').textContent,
+);
+check('拒绝后开关仍是「关」', rootEl.querySelector('[data-set=gesture]').getAttribute('aria-checked') === 'true');
+
+// 反过来：球打开之后，关双指是允许的（球还留着）
+rootEl.querySelector('[data-set=ball]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+rootEl.querySelector('[data-set=gesture]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+const saved3 = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('球开着时关双指能成功', saved3.gesture === false && saved3.ball === true, JSON.stringify(saved3));
+rootEl.querySelector('[data-set=gesture]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+
+// ---- 手机端拖动面板：按住标题栏移位 ----
+const cardEl = rootEl.querySelector('.mk-card');
+check('有卡片节点', Boolean(cardEl));
+const usePointer = Boolean(window.PointerEvent);
+const drag = (target, type, x, y) => {
+  const ev = new window.Event(type, { bubbles: true, cancelable: true });
+  const pts = type === 'touchend' || type === 'pointerup' ? [] : [{ clientX: x, clientY: y }];
+  Object.defineProperty(ev, 'touches', { value: pts });
+  Object.defineProperty(ev, 'clientX', { value: x });
+  Object.defineProperty(ev, 'clientY', { value: y });
+  Object.defineProperty(ev, 'pointerId', { value: 1 });
+  target.dispatchEvent(ev);
+};
+const vw = window.innerWidth;
+const vh = window.innerHeight;
+window.innerWidth = 390;
+window.innerHeight = 844;
+const headEl = rootEl.querySelector('.mk-head');
+const downType = usePointer ? 'pointerdown' : 'touchstart';
+const moveType = usePointer ? 'pointermove' : 'touchmove';
+const upType = usePointer ? 'pointerup' : 'touchend';
+drag(headEl, downType, 200, 300);
+drag(headEl, moveType, 240, 360);
+drag(headEl, upType, 240, 360);
+check('拖动后卡片带 translate', /translate\(40px,60px\)/.test(cardEl.style.transform || ''), cardEl.style.transform);
+// 桌面上不该拖（窗口还原成宽屏后按标题栏移动无效）
+const beforeDesktop = cardEl.style.transform;
+window.innerWidth = 1280;
+window.innerHeight = 900;
+drag(headEl, downType, 100, 100);
+drag(headEl, moveType, 180, 220);
+drag(headEl, upType, 180, 220);
+check('宽屏下拖不动', cardEl.style.transform === beforeDesktop, cardEl.style.transform);
+window.innerWidth = vw;
+window.innerHeight = vh;
 
 const chipOf = (group, value) =>
   Array.from(rootEl.querySelectorAll('[data-set-group=' + group + ']')).find((b) => b.dataset.setValue === value);

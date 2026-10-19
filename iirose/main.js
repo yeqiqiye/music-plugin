@@ -107,13 +107,6 @@
     }
     return out;
   }
-  function writeSettings(next) {
-    try {
-      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-    } catch (e) {
-      /* 隐私模式写不进去 */
-    }
-  }
 
   function apiBase() {
     return String(ls(LS.api, API_DEFAULT)).replace(/\/+$/, '') || API_DEFAULT;
@@ -630,7 +623,7 @@
       'border-radius:50%;border:1px solid #2b3444;background:#1e2836;color:#93a1b8;font-size:15px;',
       'cursor:pointer;font-family:inherit;line-height:1}',
       '.mk-iirose-gear:hover{color:#cfe6ff;border-color:#3f6ea8}',
-      // 悬浮球：可拖动、可关掉；手机上给大一点的圆和「×」
+      // 悬浮球：可拖动；要关掉它去 ⚙ 设置里关（球上不再挂「×」）
       '.mk-iirose-ball{position:fixed;right:18px;bottom:24px;z-index:2147482991;width:52px;height:52px;',
       'border-radius:50%;border:1px solid #2f6ea8;background:#173a5e;color:#cfe6ff;font-size:18px;',
       'box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:inherit;display:flex;align-items:center;',
@@ -638,13 +631,7 @@
       '.mk-iirose-ball:active{cursor:grabbing}',
       '.mk-iirose-ball:hover{background:#1d4a76}',
       '.mk-iirose-ball.mk-room{box-shadow:0 0 0 3px rgba(126,224,184,.35),0 8px 24px rgba(0,0,0,.45)}',
-      '.mk-iirose-ball .mk-ball-x{position:absolute;right:-7px;top:-7px;width:21px;height:21px;border-radius:50%;',
-      'background:#2b3444;border:1px solid #3f4b5e;color:#93a1b8;font-size:13px;line-height:19px;text-align:center;',
-      'cursor:pointer;display:none;touch-action:none}',
-      '.mk-iirose-ball:hover .mk-ball-x,.mk-iirose-ball.mk-touched .mk-ball-x{display:block}',
-      '.mk-iirose-ball .mk-ball-x:hover{background:#6b3238;color:#ffc9cf;border-color:#a04b53}',
-      '@media (max-width:640px){.mk-iirose-ball{width:56px;height:56px;font-size:20px}',
-      '.mk-iirose-ball .mk-ball-x{display:block;width:22px;height:22px;line-height:20px}}',
+      '@media (max-width:640px){.mk-iirose-ball{width:56px;height:56px;font-size:20px}}',
     ].join('\n');
     (doc.head || doc.documentElement).appendChild(style);
   }
@@ -811,9 +798,8 @@
 
     ballEl = doc.createElement('div');
     ballEl.className = 'mk-iirose-ball';
-    ballEl.title = '点歌台（' + HINT + '）· 按住可以拖动';
-    ballEl.innerHTML =
-      '<span class="mk-ball-ico">♪</span><span class="mk-ball-x" title="隐藏悬浮球（双指上滑可以再叫出来）">×</span>';
+    ballEl.title = '点歌台（' + HINT + '）· 按住可以拖动；要关掉它去面板右上角 ⚙';
+    ballEl.innerHTML = '<span class="mk-ball-ico">♪</span>';
     (doc.body || doc.documentElement).appendChild(ballEl);
 
     var panelSettings = readSettings();
@@ -841,8 +827,6 @@
       return { x: ev.clientX, y: ev.clientY };
     }
     function onBallDown(ev) {
-      // 点「×」不算拖拽
-      if (ev.target && ev.target.classList && ev.target.classList.contains('mk-ball-x')) return;
       var p = pointOf(ev);
       drag = {
         sx: p.x,
@@ -907,30 +891,6 @@
       ballEl.addEventListener('mousedown', onBallDown);
       doc.addEventListener('mousemove', onBallMove);
       doc.addEventListener('mouseup', onBallUp);
-    }
-
-    var ballX = ballEl.querySelector('.mk-ball-x');
-    if (ballX) {
-      ballX.addEventListener('click', function (ev) {
-        ev.stopPropagation();
-        ev.preventDefault();
-        var next = readSettings();
-        next.ball = false;
-        // 只允许关一个：悬浮球关了，就把双指上滑打开
-        if (!next.gesture) next.gesture = true;
-        panelSettings = next;
-        writeSettings(next);
-        hideBall();
-        diag.settings = { ball: false, gesture: next.gesture !== false };
-        // 通知面板：球已经关了，设置页里的开关要跟着变（不然显示和实际对不上）
-        try {
-          window.dispatchEvent(
-            new CustomEvent('mk-settings', { detail: { settings: next, source: 'iirose-x' } }),
-          );
-        } catch (e) {
-          /* 忽略 */
-        }
-      });
     }
 
     // ---------- 双指上滑 = 打开点歌台 ----------
