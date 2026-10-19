@@ -767,6 +767,22 @@
         lsSet(LS.relay, url || '');
         diag.relay = url || null;
       },
+      // 「外链点播」：按 <标题 - 作者 - 封面#color=xx> [视频直链] 的格式发一条公屏消息，
+      // 由 IIROSE 自己的外链点播功能解析成视频（绕开 &1 媒体帧那条路）
+      onExternalRequest: function (song, info) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var url = String((info && info.streamUrl) || '');
+        if (!url) throw new Error('没有可用的视频地址');
+        var color = normColor(app.inputcolorhex);
+        var cover = String(song.cover || '');
+        var artist = (song.artists || []).join(' & ');
+        var head =
+          '<' + song.title + ' - ' + artist + (cover ? ' - ' + cover : '') + '#color=' + color + '>';
+        app.socket.send(JSON.stringify({ m: head + ' [' + url + ']', mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastEnqueue = 'link: ' + url;
+      },
       // 「原生」模式：把链接当普通公屏消息发出去，让 IIROSE 自己解析点播（和自带点歌台同一套）
       onNativeRequest: function (song) {
         var app = locateApp();

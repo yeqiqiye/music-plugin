@@ -454,6 +454,26 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
   }
   check('音频轨媒体帧 b==0（B 站音频标记）', aMedia && aMedia.b === '=0', aMedia && String(aMedia.b));
 
+  // 外链点播：<标题 - 作者 - 封面#color=xx> [视频直链]
+  applySettings({ bili: 'link' });
+  await tick(30);
+  const beforeLink = sent.length;
+  panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(120);
+  check('外链模式只发 1 条消息', sent.length === beforeLink + 1, String(sent.length - beforeLink));
+  let linkMsg = null;
+  try {
+    linkMsg = JSON.parse(String(sent[beforeLink]));
+  } catch {
+    linkMsg = null;
+  }
+  check(
+    '外链消息含 [视频直链]',
+    linkMsg && /#color=[0-9a-fA-F]{6}> \[https?:\/\//.test(String(linkMsg.m)),
+    linkMsg && String(linkMsg.m).slice(0, 90),
+  );
+  applySettings({});
+
   // 原生模式：把链接当普通公屏消息发出去，让 IIROSE 自己解析
   applySettings({ bili: 'native' });
   await tick(30);

@@ -421,7 +421,8 @@
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
-      out.bili = out.bili === 'video' ? 'video' : out.bili === 'native' ? 'native' : 'audio';
+      out.bili =
+        out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -634,6 +635,7 @@
         '<div class="mk-chips">' +
         chip('bili', 'audio', '音频轨') +
         chip('bili', 'video', '视频') +
+        chip('bili', 'link', '外链') +
         chip('bili', 'native', '原生') +
         '</div>' +
         '</div>' +
@@ -1038,6 +1040,27 @@
       }
       playCurrent = song;
       const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+      // 外链点播：先拿视频地址，再按 IIROSE「外链点播」格式发一条聊天消息（视频链接用 [] 包住）
+      if (playAs === 'link' && song.platform === 'bilibili') {
+        setNow(label, '解析视频地址…');
+        refreshRows();
+        try {
+          if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
+          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video' });
+          if (!info || !info.playable || !info.streamUrl) {
+            throw new Error((info && info.note) || '拿不到视频地址');
+          }
+          if (typeof opts.onExternalRequest !== 'function') throw new Error('当前环境不支持外链点播');
+          await opts.onExternalRequest(song, info);
+          setNow(label, '已发外链点播 · 等 IIROSE 解析出画面');
+          setStat('已发外链点播：' + esc(song.title));
+          return { played: true, mode: 'link' };
+        } catch (err) {
+          setNow(label, '外链点播失败：' + String((err && err.message) || err));
+          setStat('外链点播失败：' + esc(String((err && err.message) || err)));
+          return { played: false, reason: String((err && err.message) || err) };
+        }
+      }
       // 原生模式：不经过中转，直接把链接发给 IIROSE 让它自己解析（自带点歌台就是这么做的）
       if (playAs === 'native' && song.platform === 'bilibili') {
         if (typeof opts.onNativeRequest !== 'function') throw new Error('当前环境不支持原生点播');
