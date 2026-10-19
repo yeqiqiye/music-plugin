@@ -394,7 +394,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bili: 'audio', bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -417,6 +417,7 @@
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
+      out.bili = out.bili === 'video' ? 'video' : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -582,6 +583,11 @@
         '<p class="mk-note">两个入口至少留一个：想关掉这个，先把另一个打开（不会再自动帮你打开别的）。</p></div>' +
         '<div class="mk-set-group"><h4>点歌</h4>' +
         sw('card', '发送点播卡片', '关掉后只发媒体数据：歌照播，但公屏/前端不再出现那张点播卡片') +
+        '<div class="mk-set-row"><div class="mk-meta"><b>B 站播放</b><small>音频轨最省流量；视频要「视频分享」房间，而且走中转流量</small></div></div>' +
+        '<div class="mk-chips">' +
+        chip('bili', 'audio', '音频轨') +
+        chip('bili', 'video', '视频') +
+        '</div>' +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
@@ -893,6 +899,13 @@
         typeof opts.onFallback === 'function'
           ? `<button data-directive="${i}" title="复制点播指令（房间不支持点播时用）">指令</button>`
           : '';
+      // B 站可以音频/视频两种播法：这里给一个「换一种」的按钮，不用去设置里改
+      const biliAlt = s.platform === 'bilibili' ? (settings.bili === 'video' ? 'audio' : 'video') : '';
+      const modeBtn = biliAlt
+        ? `<button data-pm="${i}" data-mode="${biliAlt}" title="${
+            biliAlt === 'video' ? '这条用视频播（需要视频分享房间）' : '这条用音频轨播（省流量）'
+          }">${biliAlt === 'video' ? '🎬' : '🎵'}</button>`
+        : '';
       return `<div class="mk-song mk-clickable${isCurrent ? ' mk-playing' : ''}" data-song="${i}" title="点击复制「歌名 - 歌手」">
         <button class="mk-play${isCurrent ? ' mk-busy' : ''}" data-play="${i}" title="直接播放">${isCurrent ? '♪' : '▶'}</button>
         <div class="mk-idx">${i + 1}</div>
@@ -901,6 +914,7 @@
         ${inQueue ? '<span class="mk-queuebadge">已入列</span>' : ''}
         ${badge}
         <div class="mk-acts">
+          ${modeBtn}
           <button data-queue="${i}" title="加入播放队列">+ 队列</button>
           ${directive}
           ${link}${search}
@@ -944,8 +958,11 @@
       });
     }
 
-    async function playSong(song, { enqueue = true } = {}) {
+    async function playSong(song, { enqueue = true, mode } = {}) {
       if (!song) return;
+      // B 站可以选音频轨/视频；其它平台只有音频
+      const playAs = mode || (song.platform === 'bilibili' ? settings.bili || 'audio' : 'audio');
+      const asVideo = playAs === 'video';
       if (enqueue) {
         const key = songKey(song);
         const existing = playQueue.findIndex((x) => songKey(x) === key);
@@ -957,11 +974,11 @@
       }
       playCurrent = song;
       const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
-      setNow(label, '解析播放地址…');
+      setNow(label, '解析播放地址…' + (song.platform === 'bilibili' ? '（' + (asVideo ? '视频' : '音频轨') + '）' : ''));
       refreshRows();
       try {
         if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-        const info = await api.playurl({ platform: song.platform, id: song.id });
+        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs });
         if (!info || !info.playable) {
           const why = (info && info.note) || (info && info.reason) || '拿不到可播放地址';
           setNow(label, '⚠ ' + why + '（可用「打开」跳去平台）');
@@ -972,7 +989,7 @@
           // 房间模式：不碰 <audio>（否则会和房间播放器双声），把解析结果交给宿主去发点播帧
           if (typeof opts.onEnqueue !== 'function') throw new Error('当前环境不支持点播到房间（缺 onEnqueue）');
           await opts.onEnqueue(song, info);
-          setNow(label, '已点播到房间 · 等房间开始播');
+          setNow(label, '已点播到房间（' + (info.mode === 'video' ? '视频' : '音频') + '）· 等房间开始播');
           setPlayIcon(true);
           setStat('已点播：' + esc(song.title));
           return { played: true, mode: 'room' };
@@ -1385,6 +1402,16 @@
         return;
       }
       // 播放 / 入队 / 播放器控制（这些要放在 act 之前判断，优先级最高）
+      const pmBtn = ev.target.closest('[data-pm]');
+      if (pmBtn) {
+        const s = lastResults[Number(pmBtn.dataset.pm)];
+        if (s) {
+          pmBtn.classList.add('mk-busy');
+          await playSong(s, { mode: pmBtn.dataset.mode });
+          pmBtn.classList.remove('mk-busy');
+        }
+        return;
+      }
       const playBtn = ev.target.closest('[data-play]');
       if (playBtn) {
         const s = lastResults[Number(playBtn.dataset.play)];

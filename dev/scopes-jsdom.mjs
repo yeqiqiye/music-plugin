@@ -178,6 +178,15 @@ check('关掉点播卡片后 card=false', noCard.card === false, JSON.stringify(
 rootEl.querySelector('[data-set=card]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 
+// B 站：音频轨 / 视频 二选一
+const biliChips = Array.from(rootEl.querySelectorAll('[data-set-group=bili]')).map((b) => b.dataset.setValue);
+check('B 站有 音频轨/视频 两档', biliChips.join(',') === 'audio,video', biliChips.join(','));
+rootEl.querySelector('[data-set-group=bili][data-set-value=video]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('切到视频后写进设置', JSON.parse(window.localStorage.getItem('mk_panel_settings')).bili === 'video');
+rootEl.querySelector('[data-set-group=bili][data-set-value=audio]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+
 rootEl.querySelector('[data-set=ball]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 const savedSettings = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');

@@ -83,8 +83,9 @@ const bundle = `/**
         return call('/music/api/search?' + qs.toString());
       },
       /** 解析「能不能直接播 / 播哪个同源代理地址」，播放器的唯一入口 */
-      playurl({ platform, id }) {
+      playurl({ platform, id, mode }) {
         const qs = new URLSearchParams({ platform, id: String(id) });
+        if (mode) qs.set('mode', mode);
         return call('/music/api/playurl?' + qs.toString());
       },
       platforms() {

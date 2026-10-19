@@ -1,5 +1,5 @@
-/*! music-iirose v0.3.9 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.3.9 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -396,7 +396,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bili: 'audio', bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -419,6 +419,7 @@
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
+      out.bili = out.bili === 'video' ? 'video' : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -584,6 +585,11 @@
         '<p class="mk-note">两个入口至少留一个：想关掉这个，先把另一个打开（不会再自动帮你打开别的）。</p></div>' +
         '<div class="mk-set-group"><h4>点歌</h4>' +
         sw('card', '发送点播卡片', '关掉后只发媒体数据：歌照播，但公屏/前端不再出现那张点播卡片') +
+        '<div class="mk-set-row"><div class="mk-meta"><b>B 站播放</b><small>音频轨最省流量；视频要「视频分享」房间，而且走中转流量</small></div></div>' +
+        '<div class="mk-chips">' +
+        chip('bili', 'audio', '音频轨') +
+        chip('bili', 'video', '视频') +
+        '</div>' +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
@@ -895,6 +901,13 @@
         typeof opts.onFallback === 'function'
           ? `<button data-directive="${i}" title="复制点播指令（房间不支持点播时用）">指令</button>`
           : '';
+      // B 站可以音频/视频两种播法：这里给一个「换一种」的按钮，不用去设置里改
+      const biliAlt = s.platform === 'bilibili' ? (settings.bili === 'video' ? 'audio' : 'video') : '';
+      const modeBtn = biliAlt
+        ? `<button data-pm="${i}" data-mode="${biliAlt}" title="${
+            biliAlt === 'video' ? '这条用视频播（需要视频分享房间）' : '这条用音频轨播（省流量）'
+          }">${biliAlt === 'video' ? '🎬' : '🎵'}</button>`
+        : '';
       return `<div class="mk-song mk-clickable${isCurrent ? ' mk-playing' : ''}" data-song="${i}" title="点击复制「歌名 - 歌手」">
         <button class="mk-play${isCurrent ? ' mk-busy' : ''}" data-play="${i}" title="直接播放">${isCurrent ? '♪' : '▶'}</button>
         <div class="mk-idx">${i + 1}</div>
@@ -903,6 +916,7 @@
         ${inQueue ? '<span class="mk-queuebadge">已入列</span>' : ''}
         ${badge}
         <div class="mk-acts">
+          ${modeBtn}
           <button data-queue="${i}" title="加入播放队列">+ 队列</button>
           ${directive}
           ${link}${search}
@@ -946,8 +960,11 @@
       });
     }
 
-    async function playSong(song, { enqueue = true } = {}) {
+    async function playSong(song, { enqueue = true, mode } = {}) {
       if (!song) return;
+      // B 站可以选音频轨/视频；其它平台只有音频
+      const playAs = mode || (song.platform === 'bilibili' ? settings.bili || 'audio' : 'audio');
+      const asVideo = playAs === 'video';
       if (enqueue) {
         const key = songKey(song);
         const existing = playQueue.findIndex((x) => songKey(x) === key);
@@ -959,11 +976,11 @@
       }
       playCurrent = song;
       const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
-      setNow(label, '解析播放地址…');
+      setNow(label, '解析播放地址…' + (song.platform === 'bilibili' ? '（' + (asVideo ? '视频' : '音频轨') + '）' : ''));
       refreshRows();
       try {
         if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-        const info = await api.playurl({ platform: song.platform, id: song.id });
+        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs });
         if (!info || !info.playable) {
           const why = (info && info.note) || (info && info.reason) || '拿不到可播放地址';
           setNow(label, '⚠ ' + why + '（可用「打开」跳去平台）');
@@ -974,7 +991,7 @@
           // 房间模式：不碰 <audio>（否则会和房间播放器双声），把解析结果交给宿主去发点播帧
           if (typeof opts.onEnqueue !== 'function') throw new Error('当前环境不支持点播到房间（缺 onEnqueue）');
           await opts.onEnqueue(song, info);
-          setNow(label, '已点播到房间 · 等房间开始播');
+          setNow(label, '已点播到房间（' + (info.mode === 'video' ? '视频' : '音频') + '）· 等房间开始播');
           setPlayIcon(true);
           setStat('已点播：' + esc(song.title));
           return { played: true, mode: 'room' };
@@ -1387,6 +1404,16 @@
         return;
       }
       // 播放 / 入队 / 播放器控制（这些要放在 act 之前判断，优先级最高）
+      const pmBtn = ev.target.closest('[data-pm]');
+      if (pmBtn) {
+        const s = lastResults[Number(pmBtn.dataset.pm)];
+        if (s) {
+          pmBtn.classList.add('mk-busy');
+          await playSong(s, { mode: pmBtn.dataset.mode });
+          pmBtn.classList.remove('mk-busy');
+        }
+        return;
+      }
       const playBtn = ev.target.closest('[data-play]');
       if (playBtn) {
         const s = lastResults[Number(playBtn.dataset.play)];
@@ -1682,7 +1709,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.3.9';
+  var VERSION = '0.4.0';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
@@ -2000,11 +2027,12 @@
   function songUrl(opts) {
     var platform = (opts && opts.platform) || 'netease';
     var id = String((opts && opts.id) || '');
+    var mode = (opts && opts.mode) === 'video' ? 'video' : 'audio';
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      return request('/playurl', { platform: platform, id: id }, base).then(function (out) {
+      return request('/playurl', { platform: platform, id: id, mode: mode }, base).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
         // 中转（没配 Cookie）拿不到 VIP 曲时，网易云再问一次公共接口，能拿到就拿到
@@ -2057,20 +2085,33 @@
     return (s + 'ff9800').slice(0, 6);
   }
 
+  /** 视频卡片里那格「时长文本」，客户端的视频卡片用它显示时长 */
+  function durationText(song) {
+    var sec = Math.round((Number(song && song.durationMs) || 0) / 1000);
+    if (!sec) return '';
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + '分' + (s ? s + '秒' : '');
+  }
+
   /**
    * 点播两帧：
    *   1. `&1{json}` 媒体数据 —— 真正把这首歌塞进房间播放列表；
    *   2. `m__4<来源>>标题>歌手>封面>颜色>码率` 卡片 —— 公屏/前端那张点播卡片。
    * 卡片消息就是普通公屏消息 `{m, mc, i}`（**不能带 g**，带 g 会变成私聊，只有自己看得到）。
+   *
+   * B 站视频换了标记：数据帧用 `!3`、卡片用 `*3`；音频仍是各平台标记（B 站音频 =0）。
    */
   function buildFrames(song, info, app) {
     var color = normColor(app && app.inputcolorhex);
     var artist = (song.artists || []).join(' & ');
     var cover = https(song.cover || '');
     var link = song.url || '';
-    var bitrate = Math.round((Number(info && info.bitrate) || 320000) / 1000);
-    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站用通用音乐 =0
-    var mark = TYPE_MARK[song.platform] || '@0';
+    var isVideo = Boolean(info && info.mode === 'video');
+    var bitrate = isVideo ? Number(info && info.qn) || '' : Math.round((Number(info && info.bitrate) || 320000) / 1000);
+    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站音频 =0、B 站视频 !3 / *3
+    var mark = isVideo ? '!3' : TYPE_MARK[song.platform] || '@0';
+    var cardMark = isVideo ? '*3' : mark;
 
     var media =
       '&1' +
@@ -2087,11 +2128,11 @@
 
     // 标题/歌手要做实体转义；封面和颜色**不能**转义 —— 封面里的 / 会被转成 &#x2F;，
     // 客户端拿到这种地址就加载不出来（房间歌单里就成了「没有图」）。
-    var card =
-      'm__4' +
-      mark +
-      '>' +
-      [enc(song.title), enc(artist), cover, color, bitrate].join('>');
+    // 视频卡片字段比音频多两格：`…>颜色>>码率>>时长文本`。
+    var cardFields = isVideo
+      ? [enc(song.title), enc(artist), cover, color, '', bitrate, '', durationText(song)]
+      : [enc(song.title), enc(artist), cover, color, bitrate];
+    var card = 'm__4' + cardMark + '>' + cardFields.join('>');
 
     var payload = { m: card, mc: color, i: msgId() };
 

@@ -101,6 +101,25 @@ function route(url) {
     if (q.get('platform') === 'netease') {
       return { ok: true, data: toSongs(q.get('page') === '2' ? SEARCH_PAGE2 : SEARCH_FIXTURE) };
     }
+    if (q.get('platform') === 'bilibili') {
+      return {
+        ok: true,
+        data: [
+          {
+            platform: 'bilibili',
+            id: 'BV1xx411c7mD',
+            title: '【MV】测试视频',
+            artists: ['UP主'],
+            album: '',
+            durationMs: 240000,
+            cover: 'https://i0.hdslb.com/bfs/archive/cover.jpg',
+            vip: false,
+            playable: true,
+            url: 'https://www.bilibili.com/video/BV1xx411c7mD',
+          },
+        ],
+      };
+    }
     return { ok: true, data: [KUGOU_SONG] };
   }
   if (u.includes('relay.example.com/playurl')) {
@@ -108,12 +127,37 @@ function route(url) {
     if (q.get('platform') === 'netease') {
       return {
         ok: true,
-        data: { playable: true, streamUrl: 'https://m702.music.126.net/x/y/track.mp3', ext: 'mp3', bitrate: 128012 },
+        data: { playable: true, mode: 'audio', streamUrl: 'https://m702.music.126.net/x/y/track.mp3', ext: 'mp3', bitrate: 128012 },
+      };
+    }
+    if (q.get('platform') === 'bilibili') {
+      if (q.get('mode') === 'video') {
+        return {
+          ok: true,
+          data: {
+            playable: true,
+            mode: 'video',
+            streamUrl: 'https://upos-sz-mirrorcos.bilivideo.com/x/video.mp4',
+            ext: 'mp4',
+            qn: 64,
+            durationSec: 240,
+          },
+        };
+      }
+      return {
+        ok: true,
+        data: {
+          playable: true,
+          mode: 'audio',
+          streamUrl: 'https://upos-sz-mirrorcos.bilivideo.com/x/audio.m4a',
+          ext: 'm4a',
+          bitrate: 132000,
+        },
       };
     }
     return {
       ok: true,
-      data: { playable: true, streamUrl: 'https://sharefs.kugou.com/x/track.mp3', ext: 'mp3', bitrate: 128000 },
+      data: { playable: true, mode: 'audio', streamUrl: 'https://sharefs.kugou.com/x/track.mp3', ext: 'mp3', bitrate: 128000 },
     };
   }
   if (u.includes('/cloudsearch')) {
@@ -357,6 +401,59 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
     check('点 ⚙ 弹出配置表单', Boolean(w2.document.querySelector('[data-mk-setup] [data-mk-input]')));
   }
   check('没配中转时不会渲染酷狗 tab', w2.document.querySelectorAll('.mk-tab').length === 1);
+}
+
+// ---------------- 9.2 B 站：视频 / 音频轨 切换 ----------------
+{
+  // 面板内存里的设置跟着 localStorage 走：先写 storage，再发 mk-settings 让它重读
+  const applySettings = (patch) => {
+    window.localStorage.setItem('mk_panel_settings', JSON.stringify(Object.assign({ card: true }, patch)));
+    window.dispatchEvent(new window.CustomEvent('mk-settings', { detail: { settings: null, source: 'test' } }));
+  };
+  applySettings({ bili: 'video' });
+  await tick(20);
+  // 平台顺序按 PLATFORM_FALLBACK：netease / kugou / qq / bilibili
+  const tabIds = Array.from(panelEl.querySelectorAll('.mk-tab')).map((b) => b.dataset.tab);
+  check('有 B 站 tab', tabIds.includes('bilibili'), tabIds.join(','));
+  const biliTab = panelEl.querySelectorAll('.mk-tab')[tabIds.indexOf('bilibili')];
+  biliTab.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(90);
+  check('B 站搜索打到了中转', requested.some((u) => u.includes('platform=bilibili')));
+  check('B 站行多一个「换音频轨」按钮', Boolean(panelEl.querySelector('[data-pm][data-mode="audio"]')));
+
+  const beforeVideo = sent.length;
+  panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(90);
+  check('视频点播也发 2 帧', sent.length === beforeVideo + 2, String(sent.length - beforeVideo));
+  let vMedia = null;
+  let vCard = null;
+  try {
+    vMedia = JSON.parse(String(sent[beforeVideo]).slice(2));
+  } catch {
+    vMedia = null;
+  }
+  try {
+    vCard = JSON.parse(String(sent[beforeVideo + 1]));
+  } catch {
+    vCard = null;
+  }
+  check('视频媒体帧 b=!3', vMedia && vMedia.b === '!3', vMedia && String(vMedia.b));
+  check('视频卡片以 m__4*3> 开头', vCard && String(vCard.m).startsWith('m__4*3>'), vCard && String(vCard.m).slice(0, 18));
+  check('视频卡片带时长文本', vCard && /4分/.test(String(vCard.m)), vCard && String(vCard.m).slice(-10));
+
+  // 行内按钮：这一条换回音频轨
+  const beforeAudio = sent.length;
+  panelEl.querySelector('[data-pm][data-mode="audio"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(90);
+  check('换回音频轨发 2 帧', sent.length === beforeAudio + 2, String(sent.length - beforeAudio));
+  let aMedia = null;
+  try {
+    aMedia = JSON.parse(String(sent[beforeAudio]).slice(2));
+  } catch {
+    aMedia = null;
+  }
+  check('音频轨媒体帧 b==0（B 站音频标记）', aMedia && aMedia.b === '=0', aMedia && String(aMedia.b));
+  applySettings({});
 }
 
 // ---------------- 9.5 设置里关掉「发送点播卡片」：只发媒体帧 ----------------

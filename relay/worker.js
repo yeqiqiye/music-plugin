@@ -318,6 +318,15 @@ const BILI_HEADERS = {
   cookie: `buvid3=${BUV}; b_nut=${Math.floor(Date.now() / 1000)};`,
 };
 
+/**
+ * 数据中心出口很容易被 B 站判成爬虫（playurl 直接 412）。
+ * 配了 BILI_COOKIE（浏览器里整条 Cookie，含 SESSDATA）就用真的，否则用合成的 buvid3 碰运气。
+ */
+function biliHeaders(env) {
+  const cookie = env && env.BILI_COOKIE;
+  return cookie ? Object.assign({}, BILI_HEADERS, { cookie: String(cookie) }) : BILI_HEADERS;
+}
+
 async function bilibiliSearch({ keyword, limit, page }) {
   const url =
     'https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=' +
@@ -348,16 +357,67 @@ async function bilibiliSearch({ keyword, limit, page }) {
   }));
 }
 
-async function bilibiliPlayUrl(id) {
+async function bilibiliPlayUrl(id, mode, env) {
+  const headers = biliHeaders(env);
+  try {
+    return await bilibiliPlayUrlInner(id, mode, headers);
+  } catch (err) {
+    // 数据中心 IP 命中 B 站风控时，fetch 会直接抛（412 / 403 / 超时）。
+    // 把原因说清楚，别让面板只显示「中转返回异常」。
+    return {
+      playable: false,
+      mode,
+      reason: 'upstream',
+      note:
+        'B 站接口请求失败（' +
+        String((err && err.message) || err).slice(0, 120) +
+        '）。机房 IP 常被 412 风控，给中转配 BILI_COOKIE 再试',
+    };
+  }
+}
+
+async function bilibiliPlayUrlInner(id, mode, headers) {
   const view = await fetchJson(
     'https://api.bilibili.com/x/web-interface/view?bvid=' + encodeURIComponent(id),
-    BILI_HEADERS,
+    headers,
   );
   const cid = view?.data?.cid;
   if (!cid) return { playable: false, reason: 'no-cid', note: '取不到该视频的 cid' };
+  const dur = Number(view?.data?.duration) || null;
+
+  // 视频：fnval=1 拿 durl（mp4 单文件，声画合一，IIROSE 只接受一个 URL）。
+  // 未登录一般最高 480P；要高清得给 BILI_COOKIE（SESSDATA）。
+  if (mode === 'video') {
+    const vj = await fetchJson(
+      `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(id)}&cid=${cid}` +
+        '&fnval=1&qn=80&fourk=1&platform=html5&high_quality=1',
+      headers,
+    );
+    const durl = vj?.data?.durl ?? [];
+    const first = durl.length ? durl[0] : null;
+    const vurl = first ? first.url || (first.backup_url && first.backup_url[0]) : null;
+    if (!vurl) {
+      return {
+        playable: false,
+        mode: 'video',
+        reason: 'no-video',
+        note: 'B 站没返回合并视频流（可能是付费/大会员内容，或需要登录）',
+      };
+    }
+    return {
+      playable: true,
+      mode: 'video',
+      streamUrl: https(vurl),
+      ext: 'mp4',
+      qn: vj?.data?.quality ?? null,
+      size: first.size ?? null,
+      durationSec: dur,
+    };
+  }
+
   const pj = await fetchJson(
     `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(id)}&cid=${cid}&fnval=16&fourk=1`,
-    BILI_HEADERS,
+    headers,
   );
   const audios = pj?.data?.dash?.audio ?? [];
   if (!audios.length) return { playable: false, reason: 'no-audio', note: '这个视频没有独立音频轨' };
@@ -366,10 +426,11 @@ async function bilibiliPlayUrl(id) {
   if (!url) return { playable: false, reason: 'no-url', note: 'B 站没有返回音频地址' };
   return {
     playable: true,
+    mode: 'audio',
     streamUrl: https(url),
     ext: 'm4a',
     bitrate: best.bandwidth ?? null,
-    durationSec: Number(view?.data?.duration) || null,
+    durationSec: dur,
   };
 }
 
@@ -514,7 +575,11 @@ const PLATFORMS = {
     userPlaylists: neteaseUserPlaylists,
   },
   kugou: { search: kugouSearch, playurl: kugouPlayUrl },
-  bilibili: { search: bilibiliSearch, playurl: bilibiliPlayUrl },
+  bilibili: {
+    search: bilibiliSearch,
+    // 路由按 (id, env, mode) 调；B 站需要 env 里的 BILI_COOKIE
+    playurl: (id, env, mode) => bilibiliPlayUrl(id, mode, env),
+  },
   qq: { search: qqSearch, playurl: qqPlayUrl },
 };
 
@@ -608,13 +673,15 @@ export const worker = {
         if (!id) return json({ ok: false, error: '缺少 id' }, 400);
 
         // 播放地址带时效（约 20 分钟），缓存 5 分钟够用，还能少打几次上游
-        const cacheKey = platform + ':' + id;
+        // B 站的音轨/视频是两条完全不同的地址，缓存键要带上 mode
+        const mode = (p.get('mode') || '') === 'video' ? 'video' : 'audio';
+        const cacheKey = platform + ':' + id + ':' + mode;
         const hit = playCache.get(cacheKey);
         if (hit && Date.now() - hit.at < PLAY_CACHE_MS) {
           return json({ ok: true, data: hit.value, cached: true });
         }
 
-        const data = await impl.playurl(id, env);
+        const data = await impl.playurl(id, env, mode);
 
         // 酷狗从 Cloudflare 出口很容易被限流，给一条能照着做的提示
         if (data && data.playable === false && /频繁|too\s*frequent/i.test(String(data.note || ''))) {

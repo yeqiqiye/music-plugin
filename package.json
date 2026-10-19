@@ -1,6 +1,6 @@
 {
   "name": "dsh-music-request",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "private": true,
   "description": "点歌台：DSH Web 插件（Alt+T 面板，跨平台搜歌）+ IIROSE 用户脚本（一个 JS 链接即可在房间里点播）。",
   "type": "module",
@@ -63,15 +63,21 @@
     "@deepseek-ai/dsh-host-webserver": "*"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-host-webserver": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-host-webserver": {
+      "optional": true
+    }
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": ["@deepseek-ai/dsh-client-ui-slots"],
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
       "platform": "web",
       "immediately": true
     }

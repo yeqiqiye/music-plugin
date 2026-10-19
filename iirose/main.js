@@ -335,11 +335,12 @@
   function songUrl(opts) {
     var platform = (opts && opts.platform) || 'netease';
     var id = String((opts && opts.id) || '');
+    var mode = (opts && opts.mode) === 'video' ? 'video' : 'audio';
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      return request('/playurl', { platform: platform, id: id }, base).then(function (out) {
+      return request('/playurl', { platform: platform, id: id, mode: mode }, base).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
         // 中转（没配 Cookie）拿不到 VIP 曲时，网易云再问一次公共接口，能拿到就拿到
@@ -392,20 +393,33 @@
     return (s + 'ff9800').slice(0, 6);
   }
 
+  /** 视频卡片里那格「时长文本」，客户端的视频卡片用它显示时长 */
+  function durationText(song) {
+    var sec = Math.round((Number(song && song.durationMs) || 0) / 1000);
+    if (!sec) return '';
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + '分' + (s ? s + '秒' : '');
+  }
+
   /**
    * 点播两帧：
    *   1. `&1{json}` 媒体数据 —— 真正把这首歌塞进房间播放列表；
    *   2. `m__4<来源>>标题>歌手>封面>颜色>码率` 卡片 —— 公屏/前端那张点播卡片。
    * 卡片消息就是普通公屏消息 `{m, mc, i}`（**不能带 g**，带 g 会变成私聊，只有自己看得到）。
+   *
+   * B 站视频换了标记：数据帧用 `!3`、卡片用 `*3`；音频仍是各平台标记（B 站音频 =0）。
    */
   function buildFrames(song, info, app) {
     var color = normColor(app && app.inputcolorhex);
     var artist = (song.artists || []).join(' & ');
     var cover = https(song.cover || '');
     var link = song.url || '';
-    var bitrate = Math.round((Number(info && info.bitrate) || 320000) / 1000);
-    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站用通用音乐 =0
-    var mark = TYPE_MARK[song.platform] || '@0';
+    var isVideo = Boolean(info && info.mode === 'video');
+    var bitrate = isVideo ? Number(info && info.qn) || '' : Math.round((Number(info && info.bitrate) || 320000) / 1000);
+    // 对端客户端靠这个标记决定卡片图标/来源；酷狗 @4、B 站音频 =0、B 站视频 !3 / *3
+    var mark = isVideo ? '!3' : TYPE_MARK[song.platform] || '@0';
+    var cardMark = isVideo ? '*3' : mark;
 
     var media =
       '&1' +
@@ -422,11 +436,11 @@
 
     // 标题/歌手要做实体转义；封面和颜色**不能**转义 —— 封面里的 / 会被转成 &#x2F;，
     // 客户端拿到这种地址就加载不出来（房间歌单里就成了「没有图」）。
-    var card =
-      'm__4' +
-      mark +
-      '>' +
-      [enc(song.title), enc(artist), cover, color, bitrate].join('>');
+    // 视频卡片字段比音频多两格：`…>颜色>>码率>>时长文本`。
+    var cardFields = isVideo
+      ? [enc(song.title), enc(artist), cover, color, '', bitrate, '', durationText(song)]
+      : [enc(song.title), enc(artist), cover, color, bitrate];
+    var card = 'm__4' + cardMark + '>' + cardFields.join('>');
 
     var payload = { m: card, mc: color, i: msgId() };
 
