@@ -1,5 +1,5 @@
-/*! music-iirose v0.4.9 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.4.9 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.5.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.5.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -606,6 +606,40 @@
             lines.push('拉流: HTTP ' + r.status + ' · ' + (r.headers.get('content-type') || '?'));
           } catch (err2) {
             lines.push('拉流: 失败（' + String((err2 && err2.message) || err2) + '）');
+          }
+          // 用同一个页面、同一个浏览器内核解一下这个视频：
+          // 这里能出画面 → 地址没问题，是 IIROSE 播放器的事；这里也报错 → 地址/解码被拦
+          try {
+            const probe = document.createElement('video');
+            probe.muted = true;
+            probe.preload = 'metadata';
+            probe.setAttribute('playsinline', '');
+            probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0';
+            document.body.appendChild(probe);
+            const verdict = await new Promise((resolve) => {
+              let settled = false;
+              const done = (text) => {
+                if (settled) return;
+                settled = true;
+                resolve(text);
+              };
+              probe.addEventListener('loadedmetadata', () =>
+                done(
+                  'ok ' + probe.videoWidth + 'x' + probe.videoHeight + ' ' + Math.round(probe.duration) + 's',
+                ),
+              );
+              probe.addEventListener('error', () => {
+                const e = probe.error;
+                done('错误 code=' + (e && e.code) + (e && e.message ? ' ' + e.message : ''));
+              });
+              setTimeout(() => done('超时 readyState=' + probe.readyState), 8000);
+              probe.src = d.streamUrl;
+              probe.load();
+            });
+            probe.remove();
+            lines.push('本机解码: ' + verdict);
+          } catch (err3) {
+            lines.push('本机解码: 测试失败（' + String((err3 && err3.message) || err3) + '）');
           }
         }
       } catch (err) {
@@ -1842,7 +1876,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.4.9';
+  var VERSION = '0.5.0';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;

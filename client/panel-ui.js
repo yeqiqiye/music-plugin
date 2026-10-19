@@ -605,6 +605,40 @@
           } catch (err2) {
             lines.push('拉流: 失败（' + String((err2 && err2.message) || err2) + '）');
           }
+          // 用同一个页面、同一个浏览器内核解一下这个视频：
+          // 这里能出画面 → 地址没问题，是 IIROSE 播放器的事；这里也报错 → 地址/解码被拦
+          try {
+            const probe = document.createElement('video');
+            probe.muted = true;
+            probe.preload = 'metadata';
+            probe.setAttribute('playsinline', '');
+            probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0';
+            document.body.appendChild(probe);
+            const verdict = await new Promise((resolve) => {
+              let settled = false;
+              const done = (text) => {
+                if (settled) return;
+                settled = true;
+                resolve(text);
+              };
+              probe.addEventListener('loadedmetadata', () =>
+                done(
+                  'ok ' + probe.videoWidth + 'x' + probe.videoHeight + ' ' + Math.round(probe.duration) + 's',
+                ),
+              );
+              probe.addEventListener('error', () => {
+                const e = probe.error;
+                done('错误 code=' + (e && e.code) + (e && e.message ? ' ' + e.message : ''));
+              });
+              setTimeout(() => done('超时 readyState=' + probe.readyState), 8000);
+              probe.src = d.streamUrl;
+              probe.load();
+            });
+            probe.remove();
+            lines.push('本机解码: ' + verdict);
+          } catch (err3) {
+            lines.push('本机解码: 测试失败（' + String((err3 && err3.message) || err3) + '）');
+          }
         }
       } catch (err) {
         lines.push('B 站视频: 请求失败（' + String((err && err.message) || err) + '）');
