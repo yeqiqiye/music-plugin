@@ -406,50 +406,26 @@ async function bilibiliPlayUrlInner(id, mode, headers) {
         note: 'B 站没返回合并视频流（可能是付费/大会员内容，或需要登录）',
       };
     }
-    // B 站会给一个主地址 + 几个备用镜像，不同机房对不同镜像的放行策略不一样。
-    // 这里按顺序快速探一下（Range: 0-1），挑第一个真能取到字节的，避免 /stream 才 403。
-    const candidates = [];
+    // 主地址 + backup_url 一起带出去：上游如果是 403，调用方可以换镜像重试。
+    // 注意这里**不再**提前探测——探测和真正的拉流可能落在不同实例（出口 IP 不同），
+    // B 站签名地址认 IP，探得通不代表拉得通。
+    const cands = [];
     for (const u of [first.url, ...(first.backup_url || [])]) {
-      if (u && !candidates.includes(u)) candidates.push(u);
+      if (u && !cands.includes(u)) cands.push(u);
     }
-    let chosen = '';
-    for (const c of candidates.slice(0, 4)) {
-      try {
-        const probe = await fetch(c, {
-          headers: { ...headers, range: 'bytes=0-1' },
-          redirect: 'follow',
-          signal: AbortSignal.timeout(8000),
-        });
-        try {
-          await probe.body?.cancel();
-        } catch {
-          /* 忽略 */
-        }
-        if (probe.status === 200 || probe.status === 206) {
-          chosen = c;
-          break;
-        }
-      } catch {
-        /* 这个镜像不通，试下一个 */
-      }
-    }
-    if (!chosen) {
-      return {
-        playable: false,
-        mode: 'video',
-        reason: 'cdn-blocked',
-        note: '视频镜像都被 CDN 拒了（机房 IP 常见）。配 BILI_COOKIE 或改用音频轨',
-      };
+    if (!cands.length) {
+      return { playable: false, mode: 'video', reason: 'no-url', note: 'B 站没给视频地址' };
     }
     return {
       playable: true,
       mode: 'video',
-      streamUrl: https(chosen),
+      streamUrl: https(cands[0]),
+      backups: cands.slice(1, 3).map((u) => https(u)),
       ext: 'mp4',
       qn: vj?.data?.quality ?? null,
       size: first.size ?? null,
       durationSec: dur,
-      mirrors: candidates.length,
+      mirrors: cands.length,
     };
   }
 
@@ -736,27 +712,43 @@ const worker = {
           return json({ ok: false, error: '这个平台不支持中转播放' }, 400);
         }
         const ckey = platform + ':' + rid + ':' + rmode;
-        const cHit = playCache.get(ckey);
-        let resolved = cHit && Date.now() - cHit.at < PLAY_CACHE_MS ? cHit.value : null;
+        // B 站地址认出口 IP：**不读也不写缓存**，每次都在本实例现解析，
+        // 否则 A 实例解析的地址被 B 实例拿去用，就会 403（表现就是「有时有画面」）。
+        let resolved = null;
+        if (platform !== 'bilibili') {
+          const cHit = playCache.get(ckey);
+          resolved = cHit && Date.now() - cHit.at < PLAY_CACHE_MS ? cHit.value : null;
+        }
         if (!resolved) {
           resolved = await impl2.playurl(rid, env, rmode);
-          if (resolved && resolved.playable) playCache.set(ckey, { at: Date.now(), value: resolved });
+          if (platform !== 'bilibili' && resolved && resolved.playable) {
+            playCache.set(ckey, { at: Date.now(), value: resolved });
+          }
         }
         if (!resolved || !resolved.playable || !resolved.streamUrl) {
           return json({ ok: false, error: (resolved && resolved.note) || '拿不到可播放地址' }, 502);
         }
-        return await proxyAudio(request, resolved.streamUrl, platform, env, rmode);
+        // 主地址 403 就换 backup 镜像再试（都在同一次调用里，出口 IP 不变）
+        const cands = [resolved.streamUrl].concat(resolved.backups || []).filter(Boolean);
+        let resp = null;
+        for (const c of cands.slice(0, 3)) {
+          resp = await proxyAudio(request, c, platform, env, rmode);
+          if (resp.status !== 403 && resp.status !== 502) break;
+        }
+        return resp;
       }
 
       if (url.pathname === '/playurl') {
         const id = (p.get('id') || '').trim();
         if (!id) return json({ ok: false, error: '缺少 id' }, 400);
 
-        // 播放地址带时效（约 20 分钟），缓存 5 分钟够用，还能少打几次上游
-        // B 站的音轨/视频是两条完全不同的地址，缓存键要带上 mode
+        // 播放地址带时效（约 20 分钟），缓存 5 分钟够用，还能少打几次上游。
+        // B 站例外：它的地址认出口 IP，而且返回前还要改写成 /stream?id=…，
+        // 缓存值原样返回会漏出「别的实例签的地址」→ 客户端 403（表现就是「有时有画面」）。
         const mode = (p.get('mode') || '') === 'video' ? 'video' : 'audio';
+        const cacheable = platform !== 'bilibili';
         const cacheKey = platform + ':' + id + ':' + mode;
-        const hit = playCache.get(cacheKey);
+        const hit = cacheable ? playCache.get(cacheKey) : null;
         if (hit && Date.now() - hit.at < PLAY_CACHE_MS) {
           return json({ ok: true, data: hit.value, cached: true });
         }
@@ -771,7 +763,7 @@ const worker = {
 
         // 注意：下面会改写 data.streamUrl（B 站换成 /stream?id=... ），
         // 所以缓存里要存一份**副本**，否则二次读缓存拿到的是被改写过的地址。
-        if (data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: { ...data } });
+        if (cacheable && data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: { ...data } });
 
         // B 站的签名地址认出口 IP：这里只回「id + mode」，让 /stream 当场解析当场拉流。
         // 腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（多半 403）。
