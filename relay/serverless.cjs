@@ -393,13 +393,12 @@ async function bilibiliPlayUrlInner(id, mode, headers) {
   if (mode === 'video') {
     const vj = await fetchJson(
       `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(id)}&cid=${cid}` +
-        '&fnval=1&qn=80&fourk=1&platform=html5&high_quality=1',
+        '&fnval=1&qn=80&fourk=1',
       headers,
     );
     const durl = vj?.data?.durl ?? [];
     const first = durl.length ? durl[0] : null;
-    const vurl = first ? first.url || (first.backup_url && first.backup_url[0]) : null;
-    if (!vurl) {
+    if (!first) {
       return {
         playable: false,
         mode: 'video',
@@ -407,14 +406,50 @@ async function bilibiliPlayUrlInner(id, mode, headers) {
         note: 'B 站没返回合并视频流（可能是付费/大会员内容，或需要登录）',
       };
     }
+    // B 站会给一个主地址 + 几个备用镜像，不同机房对不同镜像的放行策略不一样。
+    // 这里按顺序快速探一下（Range: 0-1），挑第一个真能取到字节的，避免 /stream 才 403。
+    const candidates = [];
+    for (const u of [first.url, ...(first.backup_url || [])]) {
+      if (u && !candidates.includes(u)) candidates.push(u);
+    }
+    let chosen = '';
+    for (const c of candidates.slice(0, 4)) {
+      try {
+        const probe = await fetch(c, {
+          headers: { ...headers, range: 'bytes=0-1' },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(8000),
+        });
+        try {
+          await probe.body?.cancel();
+        } catch {
+          /* 忽略 */
+        }
+        if (probe.status === 200 || probe.status === 206) {
+          chosen = c;
+          break;
+        }
+      } catch {
+        /* 这个镜像不通，试下一个 */
+      }
+    }
+    if (!chosen) {
+      return {
+        playable: false,
+        mode: 'video',
+        reason: 'cdn-blocked',
+        note: '视频镜像都被 CDN 拒了（机房 IP 常见）。配 BILI_COOKIE 或改用音频轨',
+      };
+    }
     return {
       playable: true,
       mode: 'video',
-      streamUrl: https(vurl),
+      streamUrl: https(chosen),
       ext: 'mp4',
       qn: vj?.data?.quality ?? null,
       size: first.size ?? null,
       durationSec: dur,
+      mirrors: candidates.length,
     };
   }
 
@@ -468,15 +503,25 @@ function allowedAudioHost(u) {
 
 const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', kugou: 'https://www.kugou.com/' };
 
-async function proxyAudio(request, target, platform) {
+async function proxyAudio(request, target, platform, env) {
   if (!allowedAudioHost(target)) {
-    return new Response('拒绝：不在允许的音频域名白名单内', { status: 403, headers: CORS });
+    let host = '';
+    try {
+      host = new URL(String(target)).hostname;
+    } catch {
+      host = String(target).slice(0, 60);
+    }
+    return new Response('拒绝：不在允许的音频域名白名单内（' + host + '）', { status: 403, headers: CORS });
   }
   const range = request.headers.get('range');
+  // B 站 CDN 对「登录态」也有校验：不带宽带的 Cookie 时，upos-* 的镜像会直接 403。
+  // 所以 /stream 拉 B 站资源时要带上 BILI_COOKIE（配了才有）。
+  const cookie = platform === 'bilibili' && env && env.BILI_COOKIE ? String(env.BILI_COOKIE) : '';
   const upstream = await fetch(target, {
     headers: {
       'user-agent': UA,
       referer: UPSTREAM_REFERER[platform] || 'https://www.bilibili.com/',
+      ...(cookie ? { cookie } : {}),
       ...(range ? { range } : {}),
     },
     redirect: 'follow',
@@ -664,11 +709,30 @@ const worker = {
         return json({ ok: true, data: await impl.userPlaylists(id, env) });
       }
 
-      // 音频中转：只放行白名单域名（见 AUDIO_HOSTS），并补上 CDN 要的 Referer
+      // 音频/视频中转：只放行白名单域名（见 AUDIO_HOSTS），并补上 CDN 要的 Referer/Cookie
       if (url.pathname === '/stream') {
         const target = p.get('url') || '';
-        if (!target) return new Response('缺少 url', { status: 400, headers: CORS });
-        return await proxyAudio(request, target, platform);
+        if (target) return await proxyAudio(request, target, platform, env);
+        // B 站的签名地址是**认出口 IP** 的：playurl 在 A 实例拿到地址，另一实例去拉就会 403。
+        // 所以这里支持「只给 id + mode」，在本次调用里现解析现拉流（同一个实例 = 同一个出口 IP）。
+        const rid = (p.get('id') || '').trim();
+        if (!rid) return new Response('缺少 url 或 id', { status: 400, headers: CORS });
+        const rmode = (p.get('mode') || '') === 'video' ? 'video' : 'audio';
+        const impl2 = PLATFORMS[platform];
+        if (!impl2 || typeof impl2.playurl !== 'function') {
+          return json({ ok: false, error: '这个平台不支持中转播放' }, 400);
+        }
+        const ckey = platform + ':' + rid + ':' + rmode;
+        const cHit = playCache.get(ckey);
+        let resolved = cHit && Date.now() - cHit.at < PLAY_CACHE_MS ? cHit.value : null;
+        if (!resolved) {
+          resolved = await impl2.playurl(rid, env, rmode);
+          if (resolved && resolved.playable) playCache.set(ckey, { at: Date.now(), value: resolved });
+        }
+        if (!resolved || !resolved.playable || !resolved.streamUrl) {
+          return json({ ok: false, error: (resolved && resolved.note) || '拿不到可播放地址' }, 502);
+        }
+        return await proxyAudio(request, resolved.streamUrl, platform, env);
       }
 
       if (url.pathname === '/playurl') {
@@ -692,16 +756,18 @@ const worker = {
           data.rateLimited = true;
         }
 
-        if (data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: data });
+        // 注意：下面会改写 data.streamUrl（B 站换成 /stream?id=... ），
+        // 所以缓存里要存一份**副本**，否则二次读缓存拿到的是被改写过的地址。
+        if (data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: { ...data } });
 
-        // B 站音频在部分 CDN 节点上要 Referer，走本中转最稳；酷狗直链匿名可取，不绕这一圈。
-        // 但腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（部分节点会 403）。
+        // B 站的签名地址认出口 IP：这里只回「id + mode」，让 /stream 当场解析当场拉流。
+        // 腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（多半 403）。
         if (platform === 'bilibili' && data && data.playable && data.streamUrl) {
           if (request.headers.get('x-mr-binary') === '0') {
             data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
           } else {
-            data.rawStreamUrl = data.streamUrl;
-            data.streamUrl = url.origin + '/stream?platform=bilibili&url=' + encodeURIComponent(data.streamUrl);
+            data.streamUrl =
+              url.origin + '/stream?platform=bilibili&id=' + encodeURIComponent(id) + '&mode=' + mode;
           }
         }
         return json({ ok: true, data });
@@ -857,11 +923,26 @@ async function toResult(response, textOnly = false) {
 /**
  * 阿里云 FC 的入口（请求处理程序填 index.handler）
  * 腾讯云 SCF 的入口（请求处理程序填 index.main_handler）
+ *
+ * 注意：阿里云 FC 的 Node.js 20 运行时下，HTTP 触发器有时把 event 作为
+ * **Buffer / JSON 字符串** 交进来（而不是对象）。这里先统一解码成对象再适配。
  */
-async function handler(event) {
-  const scf = isScfFunctionUrl(event);
+function normalizeEvent(event) {
+  let ev = event;
   try {
-    const request = toRequest(event);
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(ev)) ev = JSON.parse(ev.toString('utf8'));
+    else if (typeof ev === 'string') ev = JSON.parse(ev);
+  } catch {
+    /* 解析不了就按原样传下去（下面会走 '/' 或报错） */
+  }
+  return ev;
+}
+
+async function handler(event) {
+  const ev = normalizeEvent(event);
+  const scf = isScfFunctionUrl(ev);
+  try {
+    const request = toRequest(ev);
     // 告诉 worker：这次跑在不支持二进制响应的运行时上
     if (scf) request.headers.set('x-mr-binary', '0');
     // 云函数的环境变量在 process.env 里（阿里云 FC / 腾讯云 SCF 都是这样）

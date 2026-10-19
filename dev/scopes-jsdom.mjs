@@ -80,11 +80,14 @@ const api = {
 
 const host = window.document.createElement('div');
 window.document.body.appendChild(host);
+const relayChanges = [];
 const panel = window.mountMusicPanel(host, {
   api,
   openOnMount: true,
   version: 'test',
   hideLogin: true,
+  relayUrl: 'https://old-relay.example.com',
+  onRelayChange: (u) => relayChanges.push(u),
   scopes: [
     { id: 'song', label: '歌曲' },
     { id: 'user', label: '用户' },
@@ -313,6 +316,16 @@ window.localStorage.setItem(
 window.dispatchEvent(new window.CustomEvent('mk-settings', { detail: { settings: { ball: false, gesture: true }, source: 'x' } }));
 await tick();
 check('外部改了设置后面板开关跟着变', rootEl.querySelector('[data-set=ball]').getAttribute('aria-checked') === 'false');
+
+// 中转地址：面板里直接改，不用 F12
+const relayInput = rootEl.querySelector('[data-el=relay-url]');
+check('设置页有中转地址输入框', Boolean(relayInput));
+check('中转地址回填当前值', relayInput && relayInput.value === 'https://old-relay.example.com', relayInput && relayInput.value);
+relayInput.value = 'https://new-relay.example.com';
+rootEl.querySelector('[data-act=relay-save]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('保存中转地址调用了回调', relayChanges[0] === 'https://new-relay.example.com', JSON.stringify(relayChanges));
+check('清空按钮也在', Boolean(rootEl.querySelector('[data-act=relay-clear]')));
 
 rootEl.querySelector('[data-act=settings-done]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();

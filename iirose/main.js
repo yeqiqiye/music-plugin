@@ -759,6 +759,12 @@
           ball: !(ballEl && ballEl.style && ballEl.style.display === 'none'),
         };
       },
+      // 面板里直接改中转地址（不用 F12，也不用记 localStorage 的 key）
+      relayUrl: relayBase(),
+      onRelayChange: function (url) {
+        lsSet(LS.relay, url || '');
+        diag.relay = url || null;
+      },
       onSettingsChange: function (s) {
         applyEntrySettings(s);
       },

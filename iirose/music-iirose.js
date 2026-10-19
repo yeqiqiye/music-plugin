@@ -1,5 +1,5 @@
-/*! music-iirose v0.4.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.4.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -628,6 +628,16 @@
         '</div>' +
         sw('bgBlur', '背景模糊', '图片糊一层，更像毛玻璃') +
         '</div>' +
+        (typeof opts.onRelayChange === 'function'
+          ? '<div class="mk-set-group"><h4>中转</h4>' +
+            '<div class="mk-set-row"><div class="mk-meta"><b>中转地址</b><small>' +
+            '搜索/播放都走它；换完建议刷新一次（「用户 / 歌单」两个 tab 要重新读配置）</small></div></div>' +
+            '<div class="mk-bg-inputs">' +
+            '<input class="mk-input" data-el="relay-url" type="text" inputmode="url" placeholder="https://music-relay.xxx.fcapp.run">' +
+            '<button class="mk-btn" data-act="relay-save">保存</button>' +
+            '<button class="mk-btn mk-ghost" data-act="relay-clear">清空</button>' +
+            '</div></div>'
+          : '') +
         '<div class="mk-set-row"><div class="mk-meta"><b>完成</b><small>回到搜索</small></div>' +
         '<button class="mk-btn mk-primary" data-act="settings-done">完成</button></div>' +
         (diag ? '<div class="mk-diag">' + esc(diag) + '</div>' : '') +
@@ -641,6 +651,9 @@
       if (urlInput) {
         urlInput.value = settings.bg && settings.bg.indexOf('data:') !== 0 ? settings.bg : '';
       }
+      // 中转地址：宿主传了 relayUrl 就回填（设置页每次重绘都要重新填）
+      const relayInput = elBody.querySelector('[data-el=relay-url]');
+      if (relayInput) relayInput.value = opts.relayUrl || '';
       if (elPager.classList) elPager.classList.remove('mk-on');
       setStat('设置');
     }
@@ -1497,6 +1510,30 @@
           else setStat('这个浏览器选不了本地图片，改用图片链接');
         } else if (name === 'bg-clear') {
           setBackground('');
+        } else if (name === 'relay-save') {
+          const input = elBody.querySelector('[data-el=relay-url]');
+          const val = input ? String(input.value || '').trim().replace(/\/+$/, '') : '';
+          if (val && !/^https?:\/\/\S+$/i.test(val)) {
+            setStat('中转地址要以 http(s):// 开头');
+            return;
+          }
+          try {
+            opts.onRelayChange(val);
+            opts.relayUrl = val;
+            setStat(val ? '已保存中转地址（刷新一次后「用户 / 歌单」才会出现）' : '已清空中转地址');
+          } catch (err) {
+            setStat('保存失败：' + esc(String((err && err.message) || err)));
+          }
+        } else if (name === 'relay-clear') {
+          try {
+            opts.onRelayChange('');
+            opts.relayUrl = '';
+            const input = elBody.querySelector('[data-el=relay-url]');
+            if (input) input.value = '';
+            setStat('已清空中转地址');
+          } catch (err) {
+            setStat('清空失败：' + esc(String((err && err.message) || err)));
+          }
         } else if (name === 'settings-done') {
           if (lastResults.length) {
             renderList(lastResults, listKind, labelOf(current) + ' · ' + lastResults.length + ' 条');
@@ -1709,7 +1746,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.4.0';
+  var VERSION = '0.4.1';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
@@ -2450,6 +2487,12 @@
           gesture: gestureOn,
           ball: !(ballEl && ballEl.style && ballEl.style.display === 'none'),
         };
+      },
+      // 面板里直接改中转地址（不用 F12，也不用记 localStorage 的 key）
+      relayUrl: relayBase(),
+      onRelayChange: function (url) {
+        lsSet(LS.relay, url || '');
+        diag.relay = url || null;
       },
       onSettingsChange: function (s) {
         applyEntrySettings(s);

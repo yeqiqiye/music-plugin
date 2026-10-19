@@ -127,11 +127,26 @@ async function toResult(response, textOnly = false) {
 /**
  * 阿里云 FC 的入口（请求处理程序填 index.handler）
  * 腾讯云 SCF 的入口（请求处理程序填 index.main_handler）
+ *
+ * 注意：阿里云 FC 的 Node.js 20 运行时下，HTTP 触发器有时把 event 作为
+ * **Buffer / JSON 字符串** 交进来（而不是对象）。这里先统一解码成对象再适配。
  */
-export async function handler(event) {
-  const scf = isScfFunctionUrl(event);
+function normalizeEvent(event) {
+  let ev = event;
   try {
-    const request = toRequest(event);
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(ev)) ev = JSON.parse(ev.toString('utf8'));
+    else if (typeof ev === 'string') ev = JSON.parse(ev);
+  } catch {
+    /* 解析不了就按原样传下去（下面会走 '/' 或报错） */
+  }
+  return ev;
+}
+
+export async function handler(event) {
+  const ev = normalizeEvent(event);
+  const scf = isScfFunctionUrl(ev);
+  try {
+    const request = toRequest(ev);
     // 告诉 worker：这次跑在不支持二进制响应的运行时上
     if (scf) request.headers.set('x-mr-binary', '0');
     // 云函数的环境变量在 process.env 里（阿里云 FC / 腾讯云 SCF 都是这样）
