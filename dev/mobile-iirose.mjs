@@ -188,3 +188,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.log('结果：全部通过');
+// 面板顶栏时钟的 setInterval 会吊住 jsdom 的事件循环，跑完直接退出
+process.exit(0);

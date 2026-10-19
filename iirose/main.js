@@ -694,11 +694,10 @@
     return {
       platforms: function () {
         var list = [{ id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' }];
-        // 酷狗 / B 站要中转才可用；没配就不显示 tab，免得点进去只看到报错
+        // B 站 / QQ 要中转才可用；没配就不显示 tab，免得点进去只看到报错
         if (relayBase()) {
-          list.push({ id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' });
-          list.push({ id: 'bilibili', label: 'B 站（音频轨）', home: 'https://www.bilibili.com/' });
           list.push({ id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' });
+          list.push({ id: 'bilibili', label: 'B 站（Live / MV）', home: 'https://www.bilibili.com/' });
         }
         return Promise.resolve(list);
       },

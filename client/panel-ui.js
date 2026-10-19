@@ -15,7 +15,6 @@
 
   const PLATFORM_FALLBACK = [
     { id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' },
-    { id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' },
     { id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' },
     { id: 'bilibili', label: 'B 站（Live / MV）', home: 'https://www.bilibili.com/' },
   ];
@@ -84,8 +83,16 @@
 .mk-root[data-bg="1"][data-theme=light]{--mk-bar:rgba(238,243,250,.86);--mk-pager-bg:rgba(241,245,250,.86)}
 .mk-backdrop{position:absolute;inset:0;background:var(--mk-scrim);backdrop-filter:blur(3px)}
 .mk-card{position:relative;width:min(1000px,94vw);height:min(720px,90vh);display:flex;flex-direction:column;
-  background:var(--mk-bg);border:1px solid var(--mk-line);border-radius:16px;overflow:hidden;
+  background:color-mix(in srgb, var(--mk-bg) calc(var(--mk-alpha, 1) * 100%), transparent);
+  backdrop-filter:blur(calc((1 - var(--mk-alpha, 1)) * 12px));
+  border:1px solid var(--mk-line);border-radius:16px;overflow:hidden;
   box-shadow:var(--mk-shadow)}
+.mk-clock{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--mk-dim);padding:3px 9px;
+  border:1px solid var(--mk-line);border-radius:8px;letter-spacing:.5px}
+.mk-clock[hidden]{display:none}
+.mk-sel{width:15px;height:15px;accent-color:var(--mk-accent);margin:0 4px 0 0;flex:none;cursor:pointer}
+.mk-range{width:100%;margin:8px 0 2px;accent-color:var(--mk-accent)}
+.mk-badge{font-size:12px;color:var(--mk-accent);font-variant-numeric:tabular-nums;font-weight:600}
 .mk-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--mk-line)}
 .mk-title{font-size:16px;font-weight:700;letter-spacing:.3px}
 .mk-title small{display:block;font-size:11px;font-weight:400;color:var(--mk-dim);letter-spacing:0}
@@ -289,7 +296,9 @@
         <div class="mk-scrim"></div>
         <div class="mk-head">
           <div class="mk-title">点歌台 <span data-el="ver" style="font-size:11px;color:#7ee0b8;font-weight:600"></span> <small>Alt+T 开 / 关 · Esc 关闭 · 点 ▶ 播放，点行复制歌名</small></div>
+          <span class="mk-clock" data-el="clock" hidden></span>
           <div class="mk-right">
+            <button class="mk-btn mk-ghost" data-act="queue" title="听歌列表（队列）">队列</button>
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>
@@ -361,6 +370,7 @@
     const elSeek = $('[data-el=seek]') || stub();
     const elTime = $('[data-el=time]') || stub();
     const elVol = $('[data-el=vol]') || stub();
+    const elClock = $('[data-el=clock]') || null;
     const elPlayBtn = $('[data-act=toggle-play]') || stub();
     const elAudio = root.querySelector('[data-el=audio]') || (function () {
       const a = doc.createElement('audio');
@@ -384,6 +394,10 @@
     // 播放器状态（声明放在这里：songRow 在渲染时就要读它们，函数声明会提升、let 不会）
     let playQueue = [];
     let playIndex = -1;
+    // 歌单详情里才有勾选；selected 存 songKey，切换列表时清空
+    let inPlaylist = false;
+    let queueOpen = false;
+    const selected = new Set();
     let playCurrent = null;
     // 搜歌 / 搜用户 / 搜歌单
     const scopes = Array.isArray(opts.scopes) && opts.scopes.length ? opts.scopes : null;
@@ -399,6 +413,7 @@
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
       card: true, bili: 'video', bg: '', bgDim: 0.5, bgBlur: false,
+      opacity: 1, clock: true,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -424,6 +439,10 @@
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
+      out.clock = out.clock !== false;
+      const alpha = Number(out.opacity);
+      // 0.55 是能看清字的下限；1 = 完全不透明
+      out.opacity = Number.isFinite(alpha) ? Math.min(1, Math.max(0.55, alpha)) : SETTINGS_DEFAULT.opacity;
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
       out.bg = isSafeBg(out.bg) ? String(out.bg).trim() : '';
@@ -505,7 +524,42 @@
       root.setAttribute('data-theme', resolvedTheme());
       root.setAttribute('data-accent', settings.accent || 'blue');
       root.classList.toggle('mk-compact', Boolean(settings.compact));
+      const st = root.style;
+      if (st && typeof st.setProperty === 'function') {
+        // 面板背景透明度：CSS 里用 color-mix 把这层 alpha 混进去，字不受影响
+        st.setProperty('--mk-alpha', String(settings.opacity == null ? 1 : settings.opacity));
+      }
       applyBackground();
+      applyClock();
+    }
+
+    /** 顶栏时钟（精确到秒），可在设置里关掉 */
+    let clockTimer = null;
+    function applyClock() {
+      const show = settings.clock !== false;
+      if (elClock && elClock.setAttribute) {
+        if (show) elClock.removeAttribute('hidden');
+        else elClock.setAttribute('hidden', '');
+      }
+      if (clockTimer) {
+        clearInterval(clockTimer);
+        clockTimer = null;
+      }
+      if (!show || !elClock) return;
+      const tick = () => {
+        // 面板被移除后自愈，别让定时器一直跑
+        if (elClock && elClock.isConnected === false) {
+          clearInterval(clockTimer);
+          clockTimer = null;
+          return;
+        }
+        const d = new Date();
+        const p2 = (n) => String(n).padStart(2, '0');
+        const txt = p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
+        if (elClock.textContent !== txt) elClock.textContent = txt;
+      };
+      tick();
+      clockTimer = setInterval(tick, 1000);
     }
 
     /**
@@ -697,6 +751,13 @@
         chip('accent', 'pink', '粉', '#e26aa8') +
         '</div>' +
         sw('compact', '紧凑列表', '一行更矮，一屏能多看几首') +
+        sw('clock', '顶栏时钟', '显示时:分:秒，关掉更清爽') +
+        '<div class="mk-set-row"><div class="mk-meta"><b>面板透明度</b><small>100% 不透明；调低能透出后面的房间</small></div>' +
+        '<span class="mk-badge" data-el="opacity-val">' + Math.round((settings.opacity == null ? 1 : settings.opacity) * 100) + '%</span></div>' +
+        '<input class="mk-range" data-el="opacity" type="range" min="55" max="100" step="1" value="' +
+        Math.round((settings.opacity == null ? 1 : settings.opacity) * 100) +
+        '">'
+        +
         '</div>' +
         '<div class="mk-set-group"><h4>背景</h4>' +
         '<div class="mk-set-row mk-bg-row"><div class="mk-meta"><b>背景图</b><small>当前：' +
@@ -1016,6 +1077,7 @@
           }">${biliAlt === 'video' ? '🎬' : '🎵'}</button>`
         : '';
       return `<div class="mk-song mk-clickable${isCurrent ? ' mk-playing' : ''}" data-song="${i}" title="点击复制「歌名 - 歌手」">
+        ${inPlaylist ? `<input type="checkbox" class="mk-sel" data-sel="${i}"${selected.has(songKey(s)) ? ' checked' : ''} title="勾选后点「点选中的」">` : ''}
         <button class="mk-play${isCurrent ? ' mk-busy' : ''}" data-play="${i}" title="直接播放">${isCurrent ? '♪' : '▶'}</button>
         <div class="mk-idx">${i + 1}</div>
         ${coverOf(s.cover, '♪')}
@@ -1207,6 +1269,19 @@
     elVol.addEventListener('input', () => {
       elAudio.volume = Math.min(1, Math.max(0, (Number(elVol.value) || 0) / 100));
     });
+    // 设置页里的「面板透明度」滑杆（设置页每次重绘，所以用事件委托）
+    if (elBody.addEventListener) {
+      elBody.addEventListener('input', (ev) => {
+        const t = ev.target;
+        if (!t || typeof t.getAttribute !== 'function' || t.getAttribute('data-el') !== 'opacity') return;
+        const pct = Math.min(100, Math.max(55, Math.round(Number(t.value) || 100)));
+        settings = normalizeSettings(Object.assign({}, settings, { opacity: pct / 100 }));
+        saveSettings();
+        applySettings();
+        const lab = elBody.querySelector('[data-el=opacity-val]');
+        if (lab) lab.textContent = pct + '%';
+      });
+    }
 
     /** 面板状态导出：给自己/测试用，一眼看出播放器在干什么 */
     function playerState() {
@@ -1224,7 +1299,6 @@
       const kw = [s.title, (s.artists || [])[0]].filter(Boolean).join(' ');
       const home = (platforms.find((x) => x.id === s.platform) || {}).home || '';
       if (s.platform === 'netease') return 'https://music.163.com/#/search/m/?s=' + encodeURIComponent(kw);
-      if (s.platform === 'kugou') return 'https://www.kugou.com/yy/html/search.html#searchType=song&searchKeyWord=' + encodeURIComponent(kw);
       if (s.platform === 'qq') return 'https://y.qq.com/n/ryqq/search?w=' + encodeURIComponent(kw);
       if (s.platform === 'bilibili') return 'https://search.bilibili.com/all?keyword=' + encodeURIComponent(kw);
       return home;
@@ -1292,6 +1366,8 @@
       // 每页固定 20 条（不再给 10/20/30 的选择项：翻页已经够用了）
       const limit = 20;
       const type = scope || 'song';
+      inPlaylist = false;
+      selected.clear();
       busy = true;
       setStat('<span class="mk-load"></span> 正在搜' + esc(scopeLabel()) + ' · ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));
       elBody.innerHTML = '<div class="mk-empty">搜索中…</div>';
@@ -1330,6 +1406,34 @@
     }
 
     /** 打开歌单：一次拿到「歌单信息 + 歌曲」，再给「全部入队」 */
+    let playlistCtx = null;
+
+    /** 歌单详情：头部（全选/全部点歌/点选中的）+ 歌曲行；勾选变化后整体重画，保证头部还在 */
+    function renderPlaylistDetail() {
+      const ctx = playlistCtx;
+      if (!ctx) return;
+      inPlaylist = true;
+      const songs = ctx.songs || [];
+      const pl = ctx.pl || {};
+      renderList(songs, 'song');
+      const head =
+        '<div class="mk-detail-head">' +
+        coverOf(pl.cover, '♪') +
+        '<div class="mk-meta"><div class="mk-name">' +
+        esc(pl.name || '歌单') +
+        '</div><div class="mk-sub">' +
+        esc([songs.length + ' 首', pl.creator ? 'by ' + pl.creator : ''].filter(Boolean).join(' · ')) +
+        '</div></div>' +
+        '<div class="mk-detail-acts">' +
+        (songs.length
+          ? '<button class="mk-btn" data-act="sel-all">全选</button>' +
+            '<button class="mk-btn mk-primary" data-act="batch-play">全部点歌（' + songs.length + '）</button>' +
+            '<button class="mk-btn" data-act="play-sel">点选中的（' + selected.size + '）</button>'
+          : '') +
+        '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+      if (elBody.insertAdjacentHTML) elBody.insertAdjacentHTML('afterbegin', head);
+    }
+
     async function openPlaylist(p) {
       if (busy || typeof api.playlist !== 'function') {
         setStat('当前环境不支持读歌单');
@@ -1344,17 +1448,9 @@
         detailBack = { list: lastResults, kind: listKind, page: page };
         page = 1;
         lastLimit = Math.max(1, songs.length);
-        renderList(songs, 'song');
-        const head =
-          '<div class="mk-detail-head">' +
-          coverOf(pl.cover, '♪') +
-          '<div class="mk-meta"><div class="mk-name">' + esc(pl.name || p.name) + '</div><div class="mk-sub">' +
-          esc([songs.length + ' 首', pl.creator ? 'by ' + pl.creator : ''].filter(Boolean).join(' · ')) +
-          '</div></div>' +
-          '<div class="mk-detail-acts">' +
-          (songs.length ? '<button class="mk-btn mk-primary" data-act="batch">全部入队（' + songs.length + '）</button>' : '') +
-          '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
-        if (elBody.insertAdjacentHTML) elBody.insertAdjacentHTML('afterbegin', head);
+        playlistCtx = { songs, pl };
+        selected.clear();
+        renderPlaylistDetail();
         if (elPager.classList) elPager.classList.remove('mk-on');
         setStat('歌单「' + esc(pl.name || p.name) + '」· ' + songs.length + ' 首');
       } catch (err) {
@@ -1400,6 +1496,10 @@
 
     /** 从歌单/用户详情返回原来的搜索结果 */
     function goBack() {
+      inPlaylist = false;
+      queueOpen = false;
+      playlistCtx = null;
+      selected.clear();
       if (!detailBack) return;
       const back = detailBack;
       detailBack = null;
@@ -1421,6 +1521,120 @@
       refreshRows();
       setStat('已加入队列 ' + added + ' 首（队列共 ' + playQueue.length + ' 首）');
       return added;
+    }
+
+    /** 全部点歌：整批入队 + 从第一首开始播（不重复塞已经在队列里的） */
+    function playAll(list) {
+      const songs = (list || []).filter((s) => s && s.id).slice(0, 100);
+      if (!songs.length) {
+        setStat('这里没有可点的歌');
+        return;
+      }
+      playQueue = songs.slice();
+      playIndex = 0;
+      refreshRows();
+      playSong(playQueue[0], { enqueue: false });
+      setStat('整批点歌 ' + songs.length + ' 首，正在播第 1 首');
+    }
+
+    /** 点选中的：把勾选的几首依次入队并播第一首 */
+    function playSelected() {
+      const picked = (lastResults || []).filter((s) => s && s.id && selected.has(songKey(s)));
+      if (!picked.length) {
+        setStat('还没勾选歌曲');
+        return;
+      }
+      playQueue = picked.slice();
+      playIndex = 0;
+      refreshRows();
+      playSong(playQueue[0], { enqueue: false });
+      setStat('点选中的 ' + picked.length + ' 首，正在播第 1 首');
+    }
+
+    function toggleSelectAll() {
+      const all = (lastResults || []).filter((s) => s && s.id);
+      const every = all.length > 0 && all.every((s) => selected.has(songKey(s)));
+      selected.clear();
+      if (!every) all.forEach((s) => selected.add(songKey(s)));
+      if (inPlaylist && playlistCtx) renderPlaylistDetail();
+      else renderList(lastResults, 'song');
+      syncSelCount();
+    }
+
+    function syncSelCount() {
+      const btn = elBody.querySelector('[data-act=play-sel]');
+      if (btn) btn.textContent = '点选中的（' + selected.size + '）';
+      const all = elBody.querySelector('[data-act=sel-all]');
+      if (all) all.textContent = selected.size && selected.size === (lastResults || []).length ? '取消全选' : '全选';
+    }
+
+    function removeFromQueue(i) {
+      if (i < 0 || i >= playQueue.length) return;
+      playQueue.splice(i, 1);
+      if (playIndex > i) playIndex -= 1;
+      else if (playIndex === i) playIndex = Math.min(playIndex, playQueue.length - 1);
+      renderQueue();
+    }
+
+    /** 听歌列表：本机试听 / 点播到房间都用这一份队列 */
+    function renderQueue() {
+      // 已经有「返回上一级」就沿用它（比如从歌单详情点开队列，返回要回到歌单列表）
+      if (!detailBack) {
+        detailBack = { list: lastResults, kind: listKind, page: page };
+      }
+      queueOpen = true;
+      if (!playQueue.length) {
+        elBody.innerHTML =
+          '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
+          '<div class="mk-sub">队列 0 首</div></div>' +
+          '<div class="mk-detail-acts"><button class="mk-btn" data-act="back">‹ 返回</button></div></div>' +
+          '<div class="mk-empty">队列还是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
+        if (elPager && elPager.classList) elPager.classList.remove('mk-on');
+        setStat('队列 0 首');
+        return;
+      }
+      const head =
+        '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
+        '<div class="mk-sub">' +
+        esc(playQueue.length + ' 首 · 当前第 ' + (playIndex + 1) + ' 首') +
+        '</div></div><div class="mk-detail-acts">' +
+        '<button class="mk-btn" data-act="queue-clear">清空</button>' +
+        '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+      const rows = playQueue
+        .map((s, i) => {
+          const cur = i === playIndex;
+          const sub = [labelOf(s.platform), (s.artists || []).join(' / '), fmtDur(s.durationMs)]
+            .filter(Boolean)
+            .join(' · ');
+          return (
+            '<div class="mk-song' +
+            (cur ? ' mk-playing' : '') +
+            '">' +
+            '<button class="mk-play' +
+            (cur ? ' mk-busy' : '') +
+            '" data-act="qplay" data-i="' +
+            i +
+            '">' +
+            (cur ? '♪' : '▶') +
+            '</button>' +
+            '<div class="mk-idx">' +
+            (i + 1) +
+            '</div>' +
+            coverOf(s.cover, '♪') +
+            '<div class="mk-meta"><div class="mk-name">' +
+            esc(s.title) +
+            '</div><div class="mk-sub">' +
+            esc(sub) +
+            '</div></div>' +
+            '<div class="mk-acts"><button data-act="qdel" data-i="' +
+            i +
+            '" title="从队列移除">✕</button></div></div>'
+          );
+        })
+        .join('');
+      elBody.innerHTML = head + rows;
+      if (elPager && elPager.classList) elPager.classList.remove('mk-on');
+      setStat('队列 ' + playQueue.length + ' 首');
     }
 
     // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
@@ -1538,6 +1752,19 @@
     }
 
     // ---- 事件 ----
+    // 歌单多选：勾选状态存在 selected 里，改完顺手更新按钮上的计数
+    root.addEventListener('change', (ev) => {
+      const box = ev.target;
+      if (!box || typeof box.getAttribute !== 'function') return;
+      const idx = box.getAttribute('data-sel');
+      if (idx == null) return;
+      const s = (lastResults || [])[Number(idx)];
+      if (!s) return;
+      if (box.checked) selected.add(songKey(s));
+      else selected.delete(songKey(s));
+      syncSelCount();
+    });
+
     root.addEventListener('click', async (ev) => {
       const tab = ev.target.closest('[data-tab]');
       if (tab) {
@@ -1677,6 +1904,24 @@
           }
         }
         else if (name === 'batch') queueAll(lastResults);
+        else if (name === 'batch-play') playAll(lastResults);
+        else if (name === 'play-sel') playSelected();
+        else if (name === 'sel-all') toggleSelectAll();
+        else if (name === 'queue') renderQueue();
+        else if (name === 'queue-clear') {
+          playQueue = [];
+          playIndex = -1;
+          renderQueue();
+          setStat('已清空听歌列表');
+        } else if (name === 'qplay') {
+          const qi = Number(act.getAttribute('data-i'));
+          if (playQueue[qi]) {
+            playIndex = qi;
+            playSong(playQueue[qi], { enqueue: false });
+          }
+        } else if (name === 'qdel') {
+          removeFromQueue(Number(act.getAttribute('data-i')));
+        }
         else if (name === 'back') goBack();
         else if (name === 'close') close();
         else if (name === 'search') doSearch();
@@ -1798,6 +2043,10 @@
 
     function dispose() {
       close();
+      if (clockTimer) {
+        clearInterval(clockTimer);
+        clockTimer = null;
+      }
       try {
         window.removeEventListener('mk-settings', onWindowSettings);
         window.removeEventListener('storage', onStorage);

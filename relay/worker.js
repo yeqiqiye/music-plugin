@@ -653,7 +653,7 @@ const PLATFORMS = {
     playlist: neteasePlaylist,
     userPlaylists: neteaseUserPlaylists,
   },
-  kugou: { search: kugouSearch, playurl: kugouPlayUrl },
+  // 酷狗已下线（用 QQ 音乐平替）：不再注册平台，老客户端请求会收到「不支持的平台」
   bilibili: {
     search: bilibiliSearch,
     // 路由按 (id, env, mode) 调；B 站需要 env 里的 BILI_COOKIE

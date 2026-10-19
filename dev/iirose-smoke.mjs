@@ -63,18 +63,18 @@ const URL_FIXTURE = {
   data: [{ id: 1901371647, url: 'http://m702.music.126.net/x/y/track.mp3', br: 128012, size: 481115, type: 'mp3', expi: 1200 }],
 };
 
-// 中转（酷狗）的夹具
-const KUGOU_SONG = {
-  platform: 'kugou',
-  id: '48C685F679FFC7CF08B8A8341CA9DB44',
+// 中转（QQ 音乐）的夹具
+const QQ_SONG = {
+  platform: 'qq',
+  id: '0039MnYb0qxYhV',
   title: '晴天',
-  artists: ['蓝心羽'],
-  album: '网瘾少女叽',
-  durationMs: 176000,
+  artists: ['周杰伦'],
+  album: '叶惠美',
+  durationMs: 269000,
   cover: '',
   vip: false,
   playable: true,
-  url: 'https://www.kugou.com/mixsong/abc.html',
+  url: 'https://y.qq.com/n/ryqq/songDetail/0039MnYb0qxYhV',
 };
 
 /** 163 原始形状 → 中转返回的 Song 形状（两份 fixture 共用一套数据） */
@@ -120,7 +120,7 @@ function route(url) {
         ],
       };
     }
-    return { ok: true, data: [KUGOU_SONG] };
+    return { ok: true, data: [QQ_SONG] };
   }
   if (u.includes('relay.example.com/playurl')) {
     const q = new URL(u).searchParams;
@@ -157,7 +157,7 @@ function route(url) {
     }
     return {
       ok: true,
-      data: { playable: true, mode: 'audio', streamUrl: 'https://sharefs.kugou.com/x/track.mp3', ext: 'mp3', bitrate: 128000 },
+      data: { playable: true, mode: 'audio', streamUrl: 'https://ws.stream.qqmusic.qq.com/x/track.m4a', ext: 'm4a', bitrate: 128000 },
     };
   }
   if (u.includes('/cloudsearch')) {
@@ -202,7 +202,7 @@ Object.defineProperty(window.navigator, 'clipboard', {
   configurable: true,
 });
 
-// 先配好中转，面板才会列出酷狗 / B 站
+// 先配好中转，面板才会列出 QQ / B 站
 window.localStorage.setItem('mk_iirose_relay', 'https://relay.example.com');
 
 const code = readFileSync(join(root, 'iirose', 'music-iirose.js'), 'utf8');
@@ -342,10 +342,10 @@ const statText = panelEl.querySelector('[data-el=stat]').textContent;
 check('状态栏显示「第 2 页」', /第 2 页/.test(statText), statText);
 check('只剩 3 条时「下一页」禁用', panelEl.querySelector('[data-el=pager] [data-page="3"]').disabled === true);
 
-// ---------------- 9. 配了中转之后：酷狗 ----------------
+// ---------------- 9. 配了中转之后：QQ 音乐 ----------------
 check('中转地址进了诊断', String(diag.relay || '').includes('relay.example.com'), String(diag.relay));
 const tabCount = panelEl.querySelectorAll('.mk-tab').length;
-check('平台 tab 变成 4 个（网易云 + 酷狗 + B 站 + QQ）', tabCount === 4, String(tabCount));
+check('平台 tab 变成 3 个（网易云 + QQ + B 站，酷狗已下线）', tabCount === 3, String(tabCount));
 
 // 切回「点播到房间」再试
 panelEl.querySelector('[data-act=mode]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -353,15 +353,15 @@ await tick();
 panelEl.querySelectorAll('.mk-tab')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick(80);
 check(
-  '酷狗搜索打到了中转',
-  requested.some((u) => u.includes('relay.example.com/search') && u.includes('platform=kugou')),
+  'QQ 搜索打到了中转',
+  requested.some((u) => u.includes('relay.example.com/search') && u.includes('platform=qq')),
   requested.filter((u) => u.includes('relay')).slice(-1)[0] || '',
 );
 
 const framesBefore = sent.length;
 panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick(80);
-check('酷狗点播也发 2 帧', sent.length === framesBefore + 2, String(sent.length - framesBefore));
+check('QQ 点播也发 2 帧', sent.length === framesBefore + 2, String(sent.length - framesBefore));
 
 let kgMedia = null;
 try {
@@ -369,8 +369,8 @@ try {
 } catch {
   kgMedia = null;
 }
-check('酷狗媒体帧 b=@4', kgMedia && kgMedia.b === '@4', kgMedia && String(kgMedia.b));
-check('酷狗音频来自中转给的地址', kgMedia && String(kgMedia.s).includes('sharefs.kugou.com'), kgMedia && String(kgMedia.s));
+check('QQ 媒体帧 b=@2', kgMedia && kgMedia.b === '@2', kgMedia && String(kgMedia.b));
+check('QQ 音频来自中转给的地址', kgMedia && String(kgMedia.s).includes('qqmusic.qq.com'), kgMedia && String(kgMedia.s));
 
 let kgCard = null;
 try {
@@ -378,7 +378,7 @@ try {
 } catch {
   kgCard = null;
 }
-check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m__4@4>'), kgCard && String(kgCard.m).slice(0, 22));
+check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4@2>'), kgCard && String(kgCard.m).slice(0, 22));
 
 // ---------------- 10. 没配中转时：右下角 ⚙ 配置入口（不用 F12） ----------------
 {
@@ -400,7 +400,7 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
     await tick(20);
     check('点 ⚙ 弹出配置表单', Boolean(w2.document.querySelector('[data-mk-setup] [data-mk-input]')));
   }
-  check('没配中转时不会渲染酷狗 tab', w2.document.querySelectorAll('.mk-tab').length === 1);
+  check('没配中转时只剩一个 tab', w2.document.querySelectorAll('.mk-tab').length === 1);
 }
 
 // ---------------- 9.2 B 站：视频 / 音频轨 切换 ----------------
@@ -547,3 +547,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.log('结果：全部通过');
+// 面板里有顶栏时钟的 setInterval，jsdom 下会吊住事件循环；跑完直接退出
+process.exit(0);

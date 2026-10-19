@@ -116,15 +116,36 @@ rootEl.querySelector('.mk-entity').dispatchEvent(new window.MouseEvent('click', 
 await tick(60);
 check('调用了 api.playlist', calls.some((c) => c && c.playlist));
 check('出现歌单头', Boolean(rootEl.querySelector('.mk-detail-head')));
-check('歌单头有「全部入队」', /全部入队/.test(rootEl.querySelector('.mk-detail-head').textContent));
+check('歌单头有「全部点歌」', /全部点歌/.test(rootEl.querySelector('.mk-detail-head').textContent));
+check('歌单头有「全选」和「点选中的」', /全选/.test(rootEl.querySelector('.mk-detail-head').textContent) && /点选中的/.test(rootEl.querySelector('.mk-detail-head').textContent));
 check('歌单里渲染出 2 首歌', rootEl.querySelectorAll('.mk-song').length === 2);
 check('每行都有封面位（没有封面就显示占位）', rootEl.querySelectorAll('.mk-song .mk-cover').length === 2);
+check('歌单详情里有勾选框', rootEl.querySelectorAll('.mk-song .mk-sel').length === 2);
 check('不再有 10/20/30 条选择器', !rootEl.querySelector('[data-el=limit]'));
 
-// ---- 批量入队 ----
-rootEl.querySelector('[data-act=batch]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+// ---- 多选 + 点选中的 ----
+const boxes = rootEl.querySelectorAll('.mk-song .mk-sel');
+boxes[0].checked = true;
+boxes[0].dispatchEvent(new window.Event('change', { bubbles: true }));
 await tick();
-check('批量入队提示 2 首', /已加入队列 2 首/.test(rootEl.querySelector('[data-el=stat]').textContent), rootEl.querySelector('[data-el=stat]').textContent);
+check('勾选后按钮出现计数', /点选中的（1）/.test(rootEl.querySelector('[data-act=play-sel]').textContent));
+rootEl.querySelector('[data-act=sel-all]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('全选后计数变 2', /点选中的（2）/.test(rootEl.querySelector('[data-act=play-sel]').textContent));
+
+// ---- 批量入队（单首 + 全量） ----
+rootEl.querySelector('[data-queue="0"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('加队列提示 1 首', /已加入队列/.test(rootEl.querySelector('[data-el=stat]').textContent), rootEl.querySelector('[data-el=stat]').textContent);
+
+// ---- 听歌列表（队列） ----
+rootEl.querySelector('[data-act=queue]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('队列页显示听歌列表', /听歌列表/.test(rootEl.querySelector('.mk-body').textContent));
+check('队列页有 1 首', rootEl.querySelectorAll('.mk-song').length === 1);
+rootEl.querySelector('[data-act=queue-clear]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('清空后队列为空', /队列还是空的/.test(rootEl.querySelector('.mk-body').textContent));
 
 // ---- 返回 ----
 rootEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
