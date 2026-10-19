@@ -77,7 +77,7 @@ const afterHide = JSON.parse(window.localStorage.getItem('mk_panel_settings') ||
 check('隐藏状态被记住（设置里 ball=false）', afterHide.ball === false, JSON.stringify(afterHide));
 check('隐藏悬浮球时双指上滑保持可用', afterHide.gesture === true, JSON.stringify(afterHide));
 
-// ---- 双指上滑：面板打开 + 悬浮球回来 ----
+// ---- 双指上滑：面板打开（球保持关闭，关了就是关了） ----
 const panelRoot = document.querySelector('.mk-root');
 check('面板初始是关的', !panelRoot.classList.contains('mk-open'));
 
@@ -92,17 +92,75 @@ touch(document, 'touchmove', [
 touch(document, 'touchend', []);
 await tick(60);
 check('双指上滑后打开面板', panelRoot.classList.contains('mk-open'));
-check('双指上滑后悬浮球恢复', ball.style.display !== 'none');
-check('恢复后被记回设置', JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}').ball === true);
+const afterSwipe = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('双指上滑不会偷偷把球打开', ball.style.display === 'none' && afterSwipe.ball === false, JSON.stringify(afterSwipe));
 
 // ---- 单指上滑不该触发 ----
-const panel2 = document.querySelector('.mk-root');
-panel2.classList.remove('mk-open');
+panelRoot.classList.remove('mk-open');
 touch(document, 'touchstart', [{ clientY: 700, clientX: 180 }]);
 touch(document, 'touchmove', [{ clientY: 500, clientX: 180 }]);
 touch(document, 'touchend', []);
 await tick(40);
-check('单指上滑不触发', !panel2.classList.contains('mk-open'));
+check('单指上滑不触发', !panelRoot.classList.contains('mk-open'));
+
+// ---- 在设置里关掉双指上滑：之后怎么滑都不该开 ----
+window.__MUSIC_IIROSE__.panel.open();
+await tick(30);
+document.querySelector('[data-act=settings]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(30);
+const gestureSwitch = document.querySelector('[data-set=gesture]');
+check('设置页里有双指开关', Boolean(gestureSwitch));
+gestureSwitch.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(40);
+const offSettings = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('关掉双指后 gesture=false', offSettings.gesture === false, JSON.stringify(offSettings));
+check('关掉双指时球自动打开', offSettings.ball === true, JSON.stringify(offSettings));
+check('关掉双指后监听真的摘了', window.__MUSIC_IIROSE__.gestureOn === false);
+
+window.__MUSIC_IIROSE__.panel.close();
+await tick(30);
+touch(document, 'touchstart', [
+  { clientY: 700, clientX: 180 },
+  { clientY: 710, clientX: 220 },
+]);
+touch(document, 'touchmove', [
+  { clientY: 520, clientX: 180 },
+  { clientY: 530, clientX: 220 },
+]);
+touch(document, 'touchend', []);
+await tick(60);
+check('关掉双指后上滑打不开', !panelRoot.classList.contains('mk-open'));
+
+// ---- 再打开：又能用了 ----
+window.__MUSIC_IIROSE__.panel.open();
+await tick(30);
+document.querySelector('[data-act=settings]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(30);
+document.querySelector('[data-set=gesture]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(40);
+check('重新打开后 gesture=true', JSON.parse(window.localStorage.getItem('mk_panel_settings')).gesture === true);
+check('重新打开后监听挂回来', window.__MUSIC_IIROSE__.gestureOn === true);
+window.__MUSIC_IIROSE__.panel.close();
+await tick(20);
+touch(document, 'touchstart', [
+  { clientY: 700, clientX: 180 },
+  { clientY: 710, clientX: 220 },
+]);
+touch(document, 'touchmove', [
+  { clientY: 560, clientX: 180 },
+  { clientY: 570, clientX: 220 },
+]);
+touch(document, 'touchend', []);
+await tick(60);
+check('打开后上滑又能开面板', panelRoot.classList.contains('mk-open'));
+
+// ---- 设置页底部的诊断行 ----
+document.querySelector('[data-act=settings]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(30);
+const diagLine = document.querySelector('.mk-diag');
+check('设置页有诊断行', Boolean(diagLine), diagLine ? diagLine.textContent : '');
+check('诊断行显示实例数', Boolean(diagLine) && /脚本实例 1/.test(diagLine.textContent));
+check('诊断行显示手势状态', Boolean(diagLine) && /双指上滑 已挂监听/.test(diagLine.textContent));
 
 // ---- 拖动：位置要记住 ----
 ball.style.left = '20px';

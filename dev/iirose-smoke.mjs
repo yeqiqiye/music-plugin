@@ -176,6 +176,8 @@ check('面板节点只有一个', window.document.querySelectorAll('.mk-root').l
 run(); // 再跑一遍：模拟「脚本列表里贴了两遍」
 await tick(20);
 check('重复注入不会挂第二套', window.document.querySelectorAll('.mk-root').length === 1);
+check('重复注入后仍只有一个悬浮球', window.document.querySelectorAll('.mk-iirose-ball').length === 1);
+check('诊断能看出被注入过 2 次', window.__MUSIC_IIROSE__.instances === 2, String(window.__MUSIC_IIROSE__.instances));
 
 const panelEl = window.document.querySelector('.mk-root');
 check('悬浮球已注入', Boolean(window.document.querySelector('.mk-iirose-ball')));
@@ -349,6 +351,41 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
     check('点 ⚙ 弹出配置表单', Boolean(w2.document.querySelector('[data-mk-setup] [data-mk-input]')));
   }
   check('没配中转时不会渲染酷狗 tab', w2.document.querySelectorAll('.mk-tab').length === 1);
+}
+
+// ---------------- 10. 换版：旧版本还挂在页面里时，新的要把旧的拆掉 ----------------
+// 真实场景：extJs 里同时留着旧链接和新链接，旧版的监听还会响应双指上滑 / Alt+T。
+{
+  const dom3 = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const w3 = dom3.window;
+  w3.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  w3.socket = { send() {}, onmessage: null };
+  w3.uid = '1';
+  vm.runInContext(code, dom3.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(20);
+
+  const oldPanel = w3.__MUSIC_IIROSE__;
+  check('旧版本先装了一份', Boolean(oldPanel && oldPanel.mounted));
+  // 伪造成「旧版本」：版本号不同 → 再注入一次应当接管
+  oldPanel.version = '0.0.1';
+  let destroyed = 0;
+  const realDestroy = oldPanel.destroy;
+  oldPanel.destroy = function () {
+    destroyed++;
+    realDestroy.call(oldPanel);
+  };
+
+  vm.runInContext(code, dom3.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(30);
+  check('旧版本被拆掉（调了 destroy）', destroyed === 1, String(destroyed));
+  check('换版后只有一套面板', w3.document.querySelectorAll('.mk-root').length === 1, String(w3.document.querySelectorAll('.mk-root').length));
+  check('换版后只有一个悬浮球', w3.document.querySelectorAll('.mk-iirose-ball').length === 1);
+  check('新版本已接管', w3.__MUSIC_IIROSE__ !== oldPanel && w3.__MUSIC_IIROSE__.mounted === true);
+  check('诊断里能看到注入次数 2', w3.__MUSIC_IIROSE__.instances === 2, String(w3.__MUSIC_IIROSE__.instances));
 }
 
 console.log('');

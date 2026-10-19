@@ -22,147 +22,203 @@
 
   const CSS = `
 .mk-root{position:fixed;inset:0;z-index:2147483000;display:none;align-items:center;justify-content:center;
-  font:14px/1.6 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;color:var(--mk-fg,#e9eef7)}
+  font:14px/1.6 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;color:var(--mk-fg);
+  /* ---- 配色 token：深色是默认，浅色只在 [data-theme=light] 里覆盖 ---- */
+  --mk-bg:#141a24;--mk-fg:#e9eef7;--mk-dim:#93a1b8;--mk-line:#2b3444;
+  --mk-input:#1b2432;--mk-btn:#202a39;
+  --mk-hover:#1a2230;--mk-hover-strong:#26344a;--mk-raised:#1e2836;
+  --mk-bar:#101720;--mk-pager-bg:#0f161f;
+  --mk-on-bg:#17324f;--mk-on-fg:#cfe6ff;--mk-on-line:#2f6ea8;
+  --mk-primary-bg:#173a5e;--mk-primary-fg:#cfe6ff;
+  --mk-playing:#16304a;
+  --mk-err-bg:#3a1f22;--mk-err-fg:#ffc9cf;--mk-err-line:#6b3238;
+  --mk-warn-bg:#3a3320;--mk-warn-fg:#ffe6a8;--mk-warn-line:#6b5a26;
+  --mk-ok-fg:#7ee0b8;--mk-ok-line:#2c5f4c;
+  --mk-vip-fg:#ffd479;--mk-vip-line:#6b5626;
+  --mk-scrim:rgba(6,9,14,.62);
+  --mk-shadow:0 24px 70px rgba(0,0,0,.55);
+  --mk-accent:#4a8fd6;
+  color-scheme:dark}
 .mk-root.mk-open{display:flex}
-/* ---- 外观设置：主题 / 强调色 / 毛玻璃 / 紧凑 ---- */
-.mk-root[data-theme=light]{--mk-bg:#f6f8fc;--mk-fg:#1b2432;--mk-dim:#5f6d82;--mk-line:#d7dfea;
-  --mk-input:#fff;--mk-btn:#eef2f8;--mk-accent:#2f6ea8}
+/* ---- 外观设置：主题 / 强调色 / 毛玻璃 / 紧凑 / 背景 ---- */
+.mk-root[data-theme=light]{
+  --mk-bg:#f7f9fc;--mk-fg:#18212e;--mk-dim:#5a6a80;--mk-line:#dfe6f0;
+  --mk-input:#fff;--mk-btn:#edf1f7;
+  --mk-hover:#eef3fa;--mk-hover-strong:#e3ecf7;--mk-raised:#f1f5fa;
+  --mk-bar:#eef3fa;--mk-pager-bg:#f1f5fa;
+  --mk-on-bg:#e2edfa;--mk-on-fg:#0d4a73;--mk-on-line:#7fb0dd;
+  --mk-primary-bg:#dcebfa;--mk-primary-fg:#0f4a73;
+  --mk-playing:#e6f1fd;
+  --mk-err-bg:#fdecec;--mk-err-fg:#8a2028;--mk-err-line:#f0b4b2;
+  --mk-warn-bg:#fff7e3;--mk-warn-fg:#7a5a10;--mk-warn-line:#efd79a;
+  --mk-ok-fg:#0f6b55;--mk-ok-line:#b6e3d5;
+  --mk-vip-fg:#8a5c00;--mk-vip-line:#efd79a;
+  --mk-scrim:rgba(226,232,242,.62);
+  --mk-shadow:0 24px 70px rgba(20,32,52,.18);
+  color-scheme:light}
+/* 强调色按「主题 × 颜色」成对给值：浅色底上太亮的蓝会看不清 */
+.mk-root[data-accent=blue]{--mk-accent:#4a8fd6}
 .mk-root[data-accent=teal]{--mk-accent:#2fb59a}
 .mk-root[data-accent=violet]{--mk-accent:#8a7cf0}
 .mk-root[data-accent=pink]{--mk-accent:#e26aa8}
-.mk-root[data-accent=blue]{--mk-accent:#4a8fd6}
+.mk-root[data-theme=light][data-accent=blue]{--mk-accent:#2f6ea8}
+.mk-root[data-theme=light][data-accent=teal]{--mk-accent:#149e83}
+.mk-root[data-theme=light][data-accent=violet]{--mk-accent:#6a5be0}
+.mk-root[data-theme=light][data-accent=pink]{--mk-accent:#d24b8c}
 .mk-root.mk-glass .mk-backdrop{backdrop-filter:blur(12px);background:rgba(6,9,14,.42)}
 .mk-root.mk-glass .mk-card{backdrop-filter:blur(18px)}
 .mk-root.mk-compact .mk-song{padding:4px 10px}
 .mk-root.mk-compact .mk-sub{font-size:11px}
-.mk-root .mk-tab.mk-on,.mk-root .mk-scope.mk-on{border-color:var(--mk-accent,#2f6ea8)}
-.mk-root .mk-input:focus,.mk-root .mk-entity:hover{border-color:var(--mk-accent,#2f6ea8)}
-.mk-root .mk-song.mk-playing{border-color:var(--mk-accent,#2f6ea8)}
-.mk-root .mk-pager button:hover:not(:disabled){border-color:var(--mk-accent,#2f6ea8)}
-.mk-backdrop{position:absolute;inset:0;background:rgba(6,9,14,.62);backdrop-filter:blur(3px)}
+.mk-root .mk-tab.mk-on,.mk-root .mk-scope.mk-on{border-color:var(--mk-accent)}
+.mk-root .mk-input:focus,.mk-root .mk-entity:hover{border-color:var(--mk-accent)}
+.mk-root .mk-song.mk-playing{border-color:var(--mk-accent)}
+.mk-root .mk-pager button:hover:not(:disabled){border-color:var(--mk-accent)}
+/* ---- 自定义背景：.mk-bgimg 放图，.mk-scrim 压一层遮罩 ---- */
+.mk-bgimg,.mk-scrim{display:none}
+.mk-root[data-bg="1"] .mk-card>*{position:relative;z-index:1}
+.mk-root[data-bg="1"] .mk-card>.mk-bgimg,
+.mk-root[data-bg="1"] .mk-card>.mk-scrim{display:block;position:absolute;inset:0;z-index:0;pointer-events:none}
+.mk-root[data-bg="1"] .mk-card>.mk-bgimg{background-image:var(--mk-bg-img,none);background-size:cover;
+  background-position:center;filter:blur(var(--mk-bg-blur,0px));transform:scale(1.06)}
+.mk-root[data-bg="1"] .mk-card>.mk-scrim{background:var(--mk-scrim);opacity:var(--mk-veil,0)}
+.mk-root[data-bg="1"] .mk-head,.mk-root[data-bg="1"] .mk-body{background:transparent}
+.mk-root[data-bg="1"]{--mk-bar:rgba(16,23,32,.82);--mk-pager-bg:rgba(15,22,31,.82)}
+.mk-root[data-bg="1"][data-theme=light]{--mk-bar:rgba(238,243,250,.86);--mk-pager-bg:rgba(241,245,250,.86)}
+.mk-backdrop{position:absolute;inset:0;background:var(--mk-scrim);backdrop-filter:blur(3px)}
 .mk-card{position:relative;width:min(1000px,94vw);height:min(720px,90vh);display:flex;flex-direction:column;
-  background:var(--mk-bg,#141a24);border:1px solid var(--mk-line,#2b3444);border-radius:16px;overflow:hidden;
-  box-shadow:0 24px 70px rgba(0,0,0,.55)}
-.mk-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--mk-line,#2b3444)}
+  background:var(--mk-bg);border:1px solid var(--mk-line);border-radius:16px;overflow:hidden;
+  box-shadow:var(--mk-shadow)}
+.mk-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--mk-line)}
 .mk-title{font-size:16px;font-weight:700;letter-spacing:.3px}
-.mk-title small{display:block;font-size:11px;font-weight:400;color:var(--mk-dim,#93a1b8);letter-spacing:0}
+.mk-title small{display:block;font-size:11px;font-weight:400;color:var(--mk-dim);letter-spacing:0}
 .mk-right{margin-left:auto;display:flex;gap:8px;align-items:center}
-.mk-btn{background:var(--mk-btn,#202a39);color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:9px;
+.mk-btn{background:var(--mk-btn);color:inherit;border:1px solid var(--mk-line);border-radius:9px;
   padding:6px 12px;font-size:13px;cursor:pointer;transition:.12s}
-.mk-btn:hover{border-color:#3f6ea8;background:#26344a}
-.mk-btn.mk-primary{background:#173a5e;border-color:#2f6ea8;color:#cfe6ff}
+.mk-btn:hover{border-color:var(--mk-accent);background:var(--mk-hover-strong)}
+.mk-btn.mk-primary{background:var(--mk-primary-bg);border-color:var(--mk-on-line);color:var(--mk-primary-fg)}
 .mk-btn.mk-ghost{background:transparent}
 .mk-close{font-size:18px;line-height:1;padding:4px 10px}
 .mk-search{display:flex;gap:10px;padding:14px 16px 10px;flex-wrap:wrap;align-items:center}
-.mk-input{flex:1 1 260px;min-width:180px;background:var(--mk-input,#1b2432);color:inherit;
-  border:1px solid var(--mk-line,#2b3444);border-radius:10px;padding:10px 13px;font-size:14px;outline:none}
-.mk-input:focus{border-color:#3f6ea8}
-.mk-select{background:var(--mk-input,#1b2432);color:inherit;border:1px solid var(--mk-line,#2b3444);
+.mk-input{flex:1 1 260px;min-width:180px;background:var(--mk-input);color:inherit;
+  border:1px solid var(--mk-line);border-radius:10px;padding:10px 13px;font-size:14px;outline:none}
+.mk-input:focus{border-color:var(--mk-accent)}
+.mk-select{background:var(--mk-input);color:inherit;border:1px solid var(--mk-line);
   border-radius:10px;padding:10px 12px;font-size:13px;outline:none}
-.mk-tabs{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap;border-bottom:1px solid var(--mk-line,#2b3444)}
-.mk-tab{background:transparent;color:var(--mk-dim,#93a1b8);border:1px solid transparent;border-radius:8px;
+.mk-tabs{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap;border-bottom:1px solid var(--mk-line)}
+.mk-tab{background:transparent;color:var(--mk-dim);border:1px solid transparent;border-radius:8px;
   padding:6px 12px;font-size:13px;cursor:pointer}
-.mk-tab:hover{color:var(--mk-fg,#e9eef7);background:#1c2533}
-.mk-tab.mk-on{color:#cfe6ff;background:#17324f;border-color:#2f6ea8}
+.mk-tab:hover{color:var(--mk-fg);background:var(--mk-hover)}
+.mk-tab.mk-on{color:var(--mk-on-fg);background:var(--mk-on-bg);border-color:var(--mk-on-line)}
 .mk-body{flex:1;overflow:auto;padding:8px 10px 16px}
-.mk-sect{display:flex;align-items:center;gap:8px;padding:10px 8px 6px;color:var(--mk-dim,#93a1b8);font-size:12px}
-.mk-sect::after{content:"";flex:1;height:1px;background:var(--mk-line,#2b3444)}
+.mk-sect{display:flex;align-items:center;gap:8px;padding:10px 8px 6px;color:var(--mk-dim);font-size:12px}
+.mk-sect::after{content:"";flex:1;height:1px;background:var(--mk-line)}
 .mk-song{display:flex;gap:12px;align-items:center;padding:9px 10px;border-radius:10px;border:1px solid transparent}
-.mk-song:hover{background:#1a2230;border-color:var(--mk-line,#2b3444)}
+.mk-song:hover{background:var(--mk-hover);border-color:var(--mk-line)}
 .mk-song.mk-clickable{cursor:pointer}
-.mk-idx{width:26px;text-align:right;color:var(--mk-dim,#93a1b8);font-size:12px;flex:none}
+.mk-idx{width:26px;text-align:right;color:var(--mk-dim);font-size:12px;flex:none}
 .mk-meta{flex:1;min-width:0}
 .mk-name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mk-sub{font-size:12px;color:var(--mk-dim,#93a1b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mk-tag{font-size:10px;border:1px solid var(--mk-line,#2b3444);border-radius:20px;padding:1px 7px;color:var(--mk-dim,#93a1b8);flex:none}
-.mk-tag.mk-free{color:#7ee0b8;border-color:#2c5f4c}
-.mk-tag.mk-vip{color:#ffd479;border-color:#6b5626}
+.mk-sub{font-size:12px;color:var(--mk-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-tag{font-size:10px;border:1px solid var(--mk-line);border-radius:20px;padding:1px 7px;color:var(--mk-dim);flex:none}
+.mk-tag.mk-free{color:var(--mk-ok-fg);border-color:var(--mk-ok-line)}
+.mk-tag.mk-vip{color:var(--mk-vip-fg);border-color:var(--mk-vip-line)}
 .mk-acts{display:flex;gap:6px;flex:none}
-.mk-acts a,.mk-acts button{font-size:12px;text-decoration:none;color:inherit;border:1px solid var(--mk-line,#2b3444);
-  border-radius:8px;padding:4px 10px;background:#1e2836;cursor:pointer;font-family:inherit}
-.mk-acts a:hover,.mk-acts button:hover{border-color:#3f6ea8;background:#26344a}
-.mk-song.mk-playing{background:#16304a;border-color:#2f6ea8}
-.mk-play{width:30px;height:30px;flex:none;border-radius:50%;border:1px solid var(--mk-line,#2b3444);
-  background:#1e2836;color:inherit;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.mk-play:hover{border-color:#3f6ea8;background:#26344a}
+.mk-acts a,.mk-acts button{font-size:12px;text-decoration:none;color:inherit;border:1px solid var(--mk-line);
+  border-radius:8px;padding:4px 10px;background:var(--mk-raised);cursor:pointer;font-family:inherit}
+.mk-acts a:hover,.mk-acts button:hover{border-color:var(--mk-accent);background:var(--mk-hover-strong)}
+.mk-song.mk-playing{background:var(--mk-playing);border-color:var(--mk-accent)}
+.mk-play{width:30px;height:30px;flex:none;border-radius:50%;border:1px solid var(--mk-line);
+  background:var(--mk-raised);color:inherit;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mk-play:hover{border-color:var(--mk-accent);background:var(--mk-hover-strong)}
 .mk-play.mk-busy{opacity:.55;cursor:wait}
 .mk-play.mk-locked{opacity:.45;cursor:not-allowed}
-.mk-player{display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--mk-line,#2b3444);
-  background:#101720;flex-wrap:wrap}
-.mk-player .mk-ctl{width:32px;height:32px;border-radius:50%;border:1px solid var(--mk-line,#2b3444);
-  background:#1e2836;color:inherit;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
-.mk-player .mk-ctl:hover{border-color:#3f6ea8;background:#26344a}
-.mk-player .mk-ctl.mk-main{background:#173a5e;border-color:#2f6ea8;color:#cfe6ff;width:36px;height:36px}
+.mk-player{display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--mk-line);
+  background:var(--mk-bar);flex-wrap:wrap}
+.mk-player .mk-ctl{width:32px;height:32px;border-radius:50%;border:1px solid var(--mk-line);
+  background:var(--mk-raised);color:inherit;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
+.mk-player .mk-ctl:hover{border-color:var(--mk-accent);background:var(--mk-hover-strong)}
+.mk-player .mk-ctl.mk-main{background:var(--mk-primary-bg);border-color:var(--mk-on-line);color:var(--mk-primary-fg);width:36px;height:36px}
 .mk-now{flex:1 1 150px;min-width:110px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mk-now small{display:block;color:var(--mk-dim,#93a1b8);font-size:11.5px}
+.mk-now small{display:block;color:var(--mk-dim);font-size:11.5px}
 .mk-seek{flex:2 1 190px;display:flex;align-items:center;gap:8px;min-width:150px}
-.mk-seek input[type=range]{flex:1;accent-color:#4a8fd6}
-.mk-time{font-size:11.5px;color:var(--mk-dim,#93a1b8);font-variant-numeric:tabular-nums;flex:none;min-width:80px;text-align:right}
-.mk-vol{display:flex;align-items:center;gap:6px;flex:none;color:var(--mk-dim,#93a1b8);font-size:12px}
-.mk-vol input[type=range]{width:70px;accent-color:#4a8fd6}
-.mk-queuebadge{font-size:10px;color:#7ee0b8;border:1px solid #2c5f4c;border-radius:20px;padding:1px 6px;flex:none}
-.mk-empty{padding:34px 16px;text-align:center;color:var(--mk-dim,#93a1b8);font-size:13px}
-.mk-err{margin:8px 10px;padding:10px 12px;border-radius:10px;background:#3a1f22;border:1px solid #6b3238;color:#ffc9cf;font-size:13px}
-.mk-stat{padding:6px 16px;border-top:1px solid var(--mk-line,#2b3444);color:var(--mk-dim,#93a1b8);font-size:12px;display:flex;gap:14px;align-items:center}
-.mk-load{display:inline-block;width:13px;height:13px;border:2px solid #3f6ea8;border-top-color:transparent;
+.mk-seek input[type=range]{flex:1;accent-color:var(--mk-accent)}
+.mk-time{font-size:11.5px;color:var(--mk-dim);font-variant-numeric:tabular-nums;flex:none;min-width:80px;text-align:right}
+.mk-vol{display:flex;align-items:center;gap:6px;flex:none;color:var(--mk-dim);font-size:12px}
+.mk-vol input[type=range]{width:70px;accent-color:var(--mk-accent)}
+.mk-queuebadge{font-size:10px;color:var(--mk-ok-fg);border:1px solid var(--mk-ok-line);border-radius:20px;padding:1px 6px;flex:none}
+.mk-empty{padding:34px 16px;text-align:center;color:var(--mk-dim);font-size:13px}
+.mk-err{margin:8px 10px;padding:10px 12px;border-radius:10px;background:var(--mk-err-bg);
+  border:1px solid var(--mk-err-line);color:var(--mk-err-fg);font-size:13px}
+.mk-stat{padding:6px 16px;border-top:1px solid var(--mk-line);color:var(--mk-dim);font-size:12px;display:flex;gap:14px;align-items:center}
+.mk-load{display:inline-block;width:13px;height:13px;border:2px solid var(--mk-accent);border-top-color:transparent;
   border-radius:50%;animation:mk-spin .7s linear infinite;vertical-align:-2px}
 @keyframes mk-spin{to{transform:rotate(360deg)}}
 .mk-login{padding:16px;max-width:560px}
 .mk-login h3{margin:0 0 4px;font-size:15px}
-.mk-login p.note{color:var(--mk-dim,#93a1b8);font-size:12.5px;margin:0 0 14px}
+.mk-login p.note{color:var(--mk-dim);font-size:12.5px;margin:0 0 14px}
 .mk-field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.mk-field label{font-size:12.5px;color:var(--mk-dim,#93a1b8)}
+.mk-field label{font-size:12.5px;color:var(--mk-dim)}
 .mk-field textarea{min-height:96px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:12px;
-  background:var(--mk-input,#1b2432);color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:10px;padding:10px}
+  background:var(--mk-input);color:inherit;border:1px solid var(--mk-line);border-radius:10px;padding:10px}
 .mk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.mk-warn{background:#3a3320;border:1px solid #6b5a26;color:#ffe6a8;border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:12px}
-.mk-pager{display:none;align-items:center;justify-content:center;gap:10px;padding:8px 16px;border-top:1px solid var(--mk-line,#2b3444);background:#0f161f;font-size:12.5px;color:var(--mk-dim,#93a1b8)}
+.mk-warn{background:var(--mk-warn-bg);border:1px solid var(--mk-warn-line);color:var(--mk-warn-fg);
+  border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:12px}
+.mk-pager{display:none;align-items:center;justify-content:center;gap:10px;padding:8px 16px;border-top:1px solid var(--mk-line);background:var(--mk-pager-bg);font-size:12.5px;color:var(--mk-dim)}
 .mk-pager.mk-on{display:flex}
-.mk-pager button{font-size:12.5px;color:inherit;border:1px solid var(--mk-line,#2b3444);border-radius:8px;
-  padding:4px 10px;background:#1e2836;cursor:pointer;font-family:inherit}
-.mk-pager button:hover:not(:disabled){border-color:#3f6ea8;background:#26344a}
+.mk-pager button{font-size:12.5px;color:inherit;border:1px solid var(--mk-line);border-radius:8px;
+  padding:4px 10px;background:var(--mk-raised);cursor:pointer;font-family:inherit}
+.mk-pager button:hover:not(:disabled){border-color:var(--mk-accent);background:var(--mk-hover-strong)}
 .mk-pager button:disabled{opacity:.4;cursor:not-allowed}
 /* ---------- 搜用户 / 搜歌单（移动端批量点歌主要靠这块） ---------- */
 .mk-scopes{display:flex;gap:6px;padding:0 16px 8px;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.mk-scope{background:transparent;color:var(--mk-dim,#93a1b8);border:1px solid var(--mk-line,#2b3444);
+.mk-scope{background:transparent;color:var(--mk-dim);border:1px solid var(--mk-line);
   border-radius:999px;padding:5px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;font-family:inherit;flex:none}
-.mk-scope:hover{color:var(--mk-fg,#e9eef7)}
-.mk-scope.mk-on{color:#cfe6ff;background:#17324f;border-color:#2f6ea8}
+.mk-scope:hover{color:var(--mk-fg)}
+.mk-scope.mk-on{color:var(--mk-on-fg);background:var(--mk-on-bg);border-color:var(--mk-on-line)}
 .mk-entity{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px;border:1px solid transparent;cursor:pointer}
-.mk-entity:hover{background:#1a2230;border-color:var(--mk-line,#2b3444)}
-.mk-cover{width:44px;height:44px;border-radius:9px;flex:none;object-fit:cover;background:#1e2836}
-.mk-cover.mk-ph{display:flex;align-items:center;justify-content:center;color:#93a1b8;font-size:17px}
-.mk-detail-head{display:flex;gap:12px;align-items:center;padding:10px 8px 12px;border-bottom:1px solid var(--mk-line,#2b3444);margin-bottom:8px}
+.mk-entity:hover{background:var(--mk-hover);border-color:var(--mk-line)}
+.mk-cover{width:44px;height:44px;border-radius:9px;flex:none;object-fit:cover;background:var(--mk-raised)}
+.mk-cover.mk-ph{display:flex;align-items:center;justify-content:center;color:var(--mk-dim);font-size:17px}
+.mk-detail-head{display:flex;gap:12px;align-items:center;padding:10px 8px 12px;border-bottom:1px solid var(--mk-line);margin-bottom:8px}
 .mk-detail-head .mk-cover{width:58px;height:58px}
 .mk-detail-acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
 /* ---------- 设置页 ---------- */
 .mk-set{padding:14px 16px 20px;max-width:620px}
 .mk-set h3{margin:0 0 10px;font-size:15px}
 .mk-set-group{margin-bottom:14px}
-.mk-set-group h4{margin:0 0 6px;font-size:11.5px;color:var(--mk-dim,#93a1b8);font-weight:700;letter-spacing:.4px}
-.mk-set-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--mk-line,#2b3444)}
+.mk-set-group h4{margin:0 0 6px;font-size:11.5px;color:var(--mk-dim);font-weight:700;letter-spacing:.4px}
+.mk-set-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--mk-line)}
 .mk-set-row:last-child{border-bottom:0}
 .mk-set-row .mk-meta{flex:1;min-width:0}
 .mk-set-row b{display:block;font-weight:600;font-size:13.5px}
-.mk-set-row small{display:block;color:var(--mk-dim,#93a1b8);font-size:11.5px;line-height:1.45}
-.mk-sw{width:46px;height:26px;border-radius:999px;border:1px solid var(--mk-line,#2b3444);background:#1e2836;
+.mk-set-row small{display:block;color:var(--mk-dim);font-size:11.5px;line-height:1.45}
+.mk-sw{width:46px;height:26px;border-radius:999px;border:1px solid var(--mk-line);background:var(--mk-raised);
   position:relative;cursor:pointer;flex:none;transition:.15s;padding:0}
-.mk-sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#93a1b8;transition:.15s}
-.mk-sw.mk-on{background:var(--mk-accent,#2f6ea8);border-color:var(--mk-accent,#2f6ea8)}
+.mk-sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:var(--mk-dim);transition:.15s}
+.mk-sw.mk-on{background:var(--mk-accent);border-color:var(--mk-accent)}
 .mk-sw.mk-on::after{left:23px;background:#fff}
 .mk-chips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px}
-.mk-chip{border:1px solid var(--mk-line,#2b3444);border-radius:999px;padding:6px 12px;font-size:12.5px;background:#1e2836;
+.mk-chip{border:1px solid var(--mk-line);border-radius:999px;padding:6px 12px;font-size:12.5px;background:var(--mk-raised);
   color:inherit;cursor:pointer;font-family:inherit}
-.mk-chip.mk-on{border-color:var(--mk-accent,#2f6ea8);color:#eaf3ff}
+.mk-chip.mk-on{border-color:var(--mk-accent);background:var(--mk-on-bg);color:var(--mk-on-fg)}
 .mk-chip .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px}
-.mk-set .mk-note{color:var(--mk-dim,#93a1b8);font-size:11.5px;margin:8px 0 0;line-height:1.5}
+.mk-set .mk-note{color:var(--mk-dim);font-size:11.5px;margin:8px 0 0;line-height:1.5}
+/* 背景图：预览方块 + 一行输入 */
+.mk-bg-row{gap:10px}
+.mk-bg-prev{width:52px;height:52px;flex:none;border-radius:10px;border:1px solid var(--mk-line);
+  background-color:var(--mk-raised);background-image:none;background-size:cover;background-position:center}
+.mk-bg-inputs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
+.mk-bg-inputs .mk-input{flex:1 1 200px;min-width:0;padding:8px 11px;font-size:13px}
+.mk-hidden{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none}
+.mk-diag{color:var(--mk-dim);font-size:11px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--mk-line);line-height:1.6}
 @media (max-width:640px){
   /* 手机上是「底部抽屉」：占中长高度，不再铺满整屏 */
   .mk-root{align-items:flex-end}
   .mk-card{width:100vw;height:min(74dvh,680px);min-height:360px;border-radius:18px 18px 0 0;border-bottom:0;
     box-shadow:0 -12px 40px rgba(0,0,0,.5)}
+  .mk-root[data-theme=light] .mk-card{box-shadow:0 -12px 40px rgba(20,32,52,.18)}
   .mk-card::before{content:"";position:absolute;left:50%;top:7px;transform:translateX(-50%);width:44px;height:4px;
-    border-radius:2px;background:var(--mk-line,#3a4657);opacity:.9}
+    border-radius:2px;background:var(--mk-line);opacity:.9;z-index:2}
   .mk-head{padding:16px 12px 10px;gap:8px}
   .mk-title{font-size:15px}
   .mk-title small{display:none}
@@ -183,6 +239,11 @@
   .mk-detail-acts{margin-left:0;width:100%}
   .mk-entity{padding:12px 8px}
   .mk-cover{width:48px;height:48px}
+  /* 设置页里的背景图一行：手机上输入框独占一行，按钮换行排 */
+  .mk-set{padding:12px 12px 18px}
+  .mk-set-row{gap:8px;flex-wrap:wrap}
+  .mk-bg-inputs .mk-input{flex:1 1 100%}
+  .mk-bg-inputs .mk-btn{flex:1 1 auto}
 }
 `;
 
@@ -220,6 +281,8 @@
     root.innerHTML = `
       <div class="mk-backdrop"></div>
       <div class="mk-card" role="dialog" aria-label="点歌台">
+        <div class="mk-bgimg"></div>
+        <div class="mk-scrim"></div>
         <div class="mk-head">
           <div class="mk-title">点歌台 <span data-el="ver" style="font-size:11px;color:#7ee0b8;font-weight:600"></span> <small>Alt+T 开 / 关 · Esc 关闭 · 点 ▶ 播放，点行复制歌名</small></div>
           <div class="mk-right">
@@ -328,43 +391,117 @@
     // 打开歌单/用户详情前记一下原来的列表，返回时还原
     let detailBack = null;
 
-    // ---------- 设置（外观 / 入口开关）----------
+    // ---------- 设置（外观 / 入口开关 / 背景）----------
     // 同一份设置也存 localStorage：宿主（IIROSE）读同一把 key 来决定悬浮球和手势要不要挂
     const SETTINGS_KEY = opts.settingsKey || 'mk_panel_settings';
-    const SETTINGS_DEFAULT = { ball: true, gesture: true, theme: 'dark', accent: 'blue', glass: false, compact: false };
-    let settings = Object.assign({}, SETTINGS_DEFAULT, opts.settings || {});
-    (function loadSettings() {
+    const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
+    const SETTINGS_DEFAULT = {
+      ball: true, gesture: true, theme: 'auto', accent: 'blue', glass: false, compact: false,
+      bg: '', bgDim: 0.5, bgBlur: false,
+    };
+    // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
+    const instanceId = Math.random().toString(36).slice(2, 8);
+
+    /** 背景只接受 http(s) 链接和本机压缩出来的 data:image（挡掉 javascript: 之类） */
+    function isSafeBg(v) {
+      const s = String(v == null ? '' : v).trim();
+      if (!s) return false;
+      if (/^https?:\/\/\S+$/i.test(s)) return true;
+      return /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(s);
+    }
+
+    function normalizeSettings(raw) {
+      const out = Object.assign({}, SETTINGS_DEFAULT, raw || {});
+      if (out.theme !== 'dark' && out.theme !== 'light') out.theme = 'auto';
+      if (ACCENTS.indexOf(out.accent) < 0) out.accent = 'blue';
+      out.ball = out.ball !== false;
+      out.gesture = out.gesture !== false;
+      out.glass = Boolean(out.glass);
+      out.compact = Boolean(out.compact);
+      out.bgBlur = Boolean(out.bgBlur);
+      const dim = Number(out.bgDim);
+      out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
+      out.bg = isSafeBg(out.bg) ? String(out.bg).trim() : '';
+      return out;
+    }
+
+    let settings = normalizeSettings(opts.settings || {});
+
+    /** 回读 localStorage：× 隐藏悬浮球之类「别的实例改的」也能同步过来 */
+    function reloadSettings() {
+      let next = normalizeSettings(settings);
       try {
         const raw = window.localStorage.getItem(SETTINGS_KEY);
-        if (raw) settings = Object.assign({}, SETTINGS_DEFAULT, JSON.parse(raw));
+        if (raw) next = normalizeSettings(JSON.parse(raw));
       } catch {
-        /* 隐私模式读不到就用默认值 */
+        /* 读不到／解析不了就保留当前内存值 */
       }
-    })();
+      const changed = JSON.stringify(next) !== JSON.stringify(settings);
+      settings = next;
+      return changed;
+    }
+    reloadSettings();
 
     function notifySettings() {
-      if (typeof opts.onSettingsChange !== 'function') return;
+      if (typeof opts.onSettingsChange === 'function') {
+        try {
+          opts.onSettingsChange(settings);
+        } catch {
+          /* 宿主应用失败不影响面板 */
+        }
+      }
+      // 广播给同页面的其它实例 / 宿主脚本（它们各自监听 mk-settings）
       try {
-        opts.onSettingsChange(settings);
+        window.dispatchEvent(
+          new CustomEvent('mk-settings', { detail: { settings: settings, source: instanceId } }),
+        );
       } catch {
-        /* 宿主应用失败不影响面板 */
+        /* 没有 CustomEvent 的老环境就只走回调 */
       }
     }
 
+    /** 返回 true 表示存进浏览器了；false = 存不下（几乎都是背景图把 localStorage 撑爆） */
     function saveSettings() {
+      let ok = true;
       try {
         window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       } catch {
-        /* 写不进去就算了，当前会话仍然生效 */
+        ok = false;
       }
       notifySettings();
+      return ok;
+    }
+
+    function resolvedTheme() {
+      if (settings.theme === 'light' || settings.theme === 'dark') return settings.theme;
+      try {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+      } catch {
+        /* 老 WebView 没有 matchMedia */
+      }
+      return 'dark';
+    }
+
+    function applyBackground() {
+      const bg = settings.bg || '';
+      root.setAttribute('data-bg', bg ? '1' : '0');
+      const st = root.style;
+      if (!st || typeof st.setProperty !== 'function') return;
+      if (bg) {
+        st.setProperty('--mk-bg-img', 'url("' + bg.replace(/["\\\n\r\t]/g, '') + '")');
+      } else if (typeof st.removeProperty === 'function') {
+        st.removeProperty('--mk-bg-img');
+      }
+      st.setProperty('--mk-veil', String(settings.bgDim || 0));
+      st.setProperty('--mk-bg-blur', settings.bgBlur ? '10px' : '0px');
     }
 
     function applySettings() {
-      root.setAttribute('data-theme', settings.theme === 'light' ? 'light' : 'dark');
+      root.setAttribute('data-theme', resolvedTheme());
       root.setAttribute('data-accent', settings.accent || 'blue');
       root.classList.toggle('mk-glass', Boolean(settings.glass));
       root.classList.toggle('mk-compact', Boolean(settings.compact));
+      applyBackground();
     }
 
     /**
@@ -372,22 +509,62 @@
      * 关掉其中一个时自动把另一个打开，避免两个入口全没了、面板再也叫不出来。
      */
     function setSwitch(name, on) {
-      const next = Object.assign({}, settings);
-      next[name] = Boolean(on);
-      if (!next.ball && !next.gesture) {
-        if (name === 'ball') next.gesture = true;
-        else next.ball = true;
+      const next = Object.assign({}, settings, { [name]: Boolean(on) });
+      if (name === 'ball' || name === 'gesture') {
+        if (!next.ball && !next.gesture) {
+          if (name === 'ball') next.gesture = true;
+          else next.ball = true;
+        }
       }
-      settings = next;
-      saveSettings();
+      settings = normalizeSettings(next);
+      const ok = saveSettings();
       applySettings();
       renderSettings();
-      if (!settings.ball || !settings.gesture) {
-        setStat(settings.ball ? '已关闭双指上滑（悬浮球还能用）' : '已隐藏悬浮球（双指上滑还能用）');
+      if (name === 'ball' || name === 'gesture') {
+        if (!settings.ball || !settings.gesture) {
+          setStat(settings.ball ? '已关闭双指上滑（悬浮球还能用）' : '已隐藏悬浮球（双指上滑还能用）');
+        }
+      } else if (!ok) {
+        setStat('存不进浏览器（多半是背景图太大），本次生效、刷新会丢');
+      }
+    }
+
+    function themeLabel(t) {
+      return t === 'dark' ? '深色' : t === 'light' ? '浅色' : '跟随系统';
+    }
+
+    function setChip(group, value) {
+      const patch = { [group]: group === 'bgDim' ? Number(value) : String(value) };
+      settings = normalizeSettings(Object.assign({}, settings, patch));
+      const ok = saveSettings();
+      applySettings();
+      renderSettings();
+      if (!ok) setStat('存不进浏览器（多半是背景图太大），本次生效、刷新会丢');
+      else if (group === 'theme') setStat('主题：' + themeLabel(settings.theme));
+      else if (group === 'bgDim') setStat('背景遮罩：' + Math.round(settings.bgDim * 100) + '%');
+    }
+
+    /** 诊断行：宿主传了 diagnostics() 才显示 —— 用来一眼看出「是不是有旧脚本还在跑」 */
+    function diagText() {
+      if (typeof opts.diagnostics !== 'function') return '';
+      try {
+        const d = opts.diagnostics();
+        if (!d) return '';
+        const bits = [];
+        if (d.version) bits.push('v' + d.version);
+        if (d.instances) bits.push('脚本实例 ' + d.instances);
+        if (d.gesture !== undefined) bits.push('双指上滑 ' + (d.gesture ? '已挂监听' : '已卸载监听'));
+        if (d.ball !== undefined) bits.push('悬浮球 ' + (d.ball ? '显示中' : '已隐藏'));
+        return bits.length ? '诊断：' + bits.join(' · ') : '';
+      } catch {
+        return '';
       }
     }
 
     function renderSettings() {
+      // 每次进设置页都先回读一次：× 隐藏悬浮球之后，这里的开关要跟实际状态一致
+      reloadSettings();
+      applySettings();
       const sw = (name, label, desc) =>
         `<div class="mk-set-row"><div class="mk-meta"><b>${label}</b><small>${desc}</small></div>` +
         `<button class="mk-sw${settings[name] ? ' mk-on' : ''}" data-set="${name}" role="switch" ` +
@@ -397,16 +574,19 @@
         (color ? `<span class="dot" style="background:${color}"></span>` : '') +
         label +
         '</button>';
+      const bgKind = !settings.bg ? '未设置' : settings.bg.indexOf('data:') === 0 ? '本机图片' : '图片链接';
+      const diag = diagText();
       elBody.innerHTML =
         '<div class="mk-set">' +
         '<h3>设置</h3>' +
         '<div class="mk-set-group"><h4>入口</h4>' +
         sw('ball', '悬浮球', '右下角 ♪，可拖动；关掉后双指上滑还留着') +
-        sw('gesture', '双指上滑', '手机上从页面底部双指向上滑，打开点歌台') +
+        sw('gesture', '双指上滑', '手机上双指向上滑开面板；关掉会真的卸载监听') +
         '<p class="mk-note">两个入口至少留一个：关掉其中一个，另一个会自动打开。</p></div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
-        '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>深色更配房间，浅色白天看着舒服</small></div></div>' +
+        '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
+        chip('theme', 'auto', '跟随系统') +
         chip('theme', 'dark', '深色') +
         chip('theme', 'light', '浅色') +
         '</div>' +
@@ -420,11 +600,160 @@
         sw('glass', '毛玻璃背景', '面板半透明 + 背景模糊，性能差的手机建议关') +
         sw('compact', '紧凑列表', '一行更矮，一屏能多看几首') +
         '</div>' +
+        '<div class="mk-set-group"><h4>背景</h4>' +
+        '<div class="mk-set-row mk-bg-row"><div class="mk-meta"><b>背景图</b><small>当前：' +
+        esc(bgKind) +
+        '；本机图片会先压缩再存进浏览器</small></div>' +
+        '<span class="mk-bg-prev" data-el="bg-prev"></span></div>' +
+        '<div class="mk-bg-inputs">' +
+        '<input class="mk-input" data-el="bg-url" type="text" inputmode="url" placeholder="粘图片链接 https://…">' +
+        '<button class="mk-btn" data-act="bg-apply">用这个链接</button>' +
+        '<button class="mk-btn" data-act="bg-file">选本机图片</button>' +
+        '<button class="mk-btn mk-ghost" data-act="bg-clear">清除</button>' +
+        '</div>' +
+        '<input type="file" accept="image/*" data-el="bg-file" class="mk-hidden">' +
+        '<div class="mk-set-row"><div class="mk-meta"><b>遮罩</b><small>压暗一层，字更清楚</small></div></div>' +
+        '<div class="mk-chips">' +
+        chip('bgDim', 0, '无') +
+        chip('bgDim', 0.25, '轻') +
+        chip('bgDim', 0.5, '中') +
+        chip('bgDim', 0.72, '重') +
+        '</div>' +
+        sw('bgBlur', '背景模糊', '图片糊一层，更像毛玻璃') +
+        '</div>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>完成</b><small>回到搜索</small></div>' +
         '<button class="mk-btn mk-primary" data-act="settings-done">完成</button></div>' +
+        (diag ? '<div class="mk-diag">' + esc(diag) + '</div>' : '') +
         '</div>';
+      // innerHTML 里塞 url("…") 容易被引号搞坏，预览和输入框都用 DOM 属性赋值
+      const prev = elBody.querySelector('[data-el=bg-prev]');
+      if (prev && prev.style && settings.bg) {
+        prev.style.backgroundImage = 'url("' + settings.bg.replace(/["\\\n\r]/g, '') + '")';
+      }
+      const urlInput = elBody.querySelector('[data-el=bg-url]');
+      if (urlInput) {
+        urlInput.value = settings.bg && settings.bg.indexOf('data:') !== 0 ? settings.bg : '';
+      }
       if (elPager.classList) elPager.classList.remove('mk-on');
       setStat('设置');
+    }
+
+    function setBackground(raw) {
+      const value = String(raw == null ? '' : raw).trim();
+      if (value && !isSafeBg(value)) {
+        setStat('只支持 http(s) 图片链接或本机图片，这个链接不支持');
+        return;
+      }
+      settings = normalizeSettings(Object.assign({}, settings, { bg: value }));
+      applySettings();
+      const ok = saveSettings();
+      renderSettings();
+      if (!ok) {
+        setStat('这张图太大，浏览器存不下（约 5MB 上限）：本次生效、刷新会丢，建议改用图片链接');
+      } else if (!value) {
+        setStat('已清除背景');
+      } else {
+        setStat(value.indexOf('data:') === 0 ? '背景已设为本机图片' : '背景已设为该链接');
+      }
+    }
+
+    /** 本机图片 → 压成 JPEG data URL（最长边 1600，不够就降到 900，目标 ≤900KB） */
+    function shrinkImage(file) {
+      return new Promise((resolve, reject) => {
+        if (!file || !/^image\//i.test(file.type || '')) {
+          reject(new Error('这不是图片'));
+          return;
+        }
+        let objectUrl = '';
+        try {
+          objectUrl = window.URL.createObjectURL(file);
+        } catch {
+          reject(new Error('读不到这个文件'));
+          return;
+        }
+        const cleanup = () => {
+          try {
+            window.URL.revokeObjectURL(objectUrl);
+          } catch {
+            /* 忽略 */
+          }
+        };
+        const img = new window.Image();
+        img.onerror = () => {
+          cleanup();
+          reject(new Error('这张图打不开'));
+        };
+        img.onload = () => {
+          try {
+            let maxSide = 1600;
+            let quality = 0.82;
+            let dataUrl = '';
+            for (let i = 0; i < 6; i++) {
+              const side = Math.max(img.width || 0, img.height || 0) || 1200;
+              const scale = Math.min(1, maxSide / side);
+              const w = Math.max(1, Math.round((img.width || 800) * scale));
+              const h = Math.max(1, Math.round((img.height || 600) * scale));
+              const canvas = doc.createElement('canvas');
+              canvas.width = w;
+              canvas.height = h;
+              const c2d = canvas.getContext && canvas.getContext('2d');
+              if (!c2d) throw new Error('这个浏览器不支持压缩图片');
+              c2d.drawImage(img, 0, 0, w, h);
+              dataUrl = canvas.toDataURL('image/jpeg', quality);
+              if (dataUrl.length <= 900000) break;
+              if (i % 2 === 0) quality = Math.max(0.5, quality - 0.12);
+              else maxSide = Math.max(640, Math.round(maxSide * 0.72));
+            }
+            cleanup();
+            if (!dataUrl) {
+              reject(new Error('压缩失败'));
+            } else if (dataUrl.length > 900000) {
+              reject(new Error('图片太大（压缩后仍超过 900KB），换小一点或用图片链接'));
+            } else {
+              resolve(dataUrl);
+            }
+          } catch (err) {
+            cleanup();
+            reject(err);
+          }
+        };
+        img.src = objectUrl;
+      });
+    }
+
+    // 别的实例 / 宿主改了设置：回读并重绘（自己发的事件直接跳过，免得来回刷）
+    function onExternalSettings() {
+      if (!reloadSettings()) return;
+      applySettings();
+      if (elBody.querySelector && elBody.querySelector('.mk-set')) renderSettings();
+    }
+    function onWindowSettings(ev) {
+      const d = ev && ev.detail;
+      if (d && d.source === instanceId) return;
+      onExternalSettings();
+    }
+    function onStorage(ev) {
+      if (ev && ev.key && ev.key !== SETTINGS_KEY) return;
+      onExternalSettings();
+    }
+    function onSchemeChange() {
+      if (settings.theme === 'auto') applySettings();
+    }
+    let mqList = null;
+    try {
+      mqList = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+    } catch {
+      mqList = null;
+    }
+    try {
+      window.addEventListener('mk-settings', onWindowSettings);
+      window.addEventListener('storage', onStorage);
+    } catch {
+      /* 忽略 */
+    }
+    if (mqList) {
+      if (typeof mqList.addEventListener === 'function') mqList.addEventListener('change', onSchemeChange);
+      else if (typeof mqList.addListener === 'function') mqList.addListener(onSchemeChange);
     }
 
     // 版本号显示在标题旁边：刷新后一眼能确认「页面里跑的是新代码」。
@@ -1026,19 +1355,23 @@
       }
       const setChipBtn = ev.target.closest('[data-set-group]');
       if (setChipBtn) {
-        const patch = {};
-        patch[setChipBtn.dataset.setGroup] = setChipBtn.dataset.setValue;
-        settings = Object.assign({}, settings, patch);
-        saveSettings();
-        applySettings();
-        renderSettings();
+        setChip(setChipBtn.dataset.setGroup, setChipBtn.dataset.setValue);
         return;
       }
       const act = ev.target.closest('[data-act]');
       if (act) {
         const name = act.dataset.act;
         if (name === 'settings') renderSettings();
-        else if (name === 'settings-done') {
+        else if (name === 'bg-apply') {
+          const urlInput = elBody.querySelector('[data-el=bg-url]');
+          setBackground(urlInput ? urlInput.value : '');
+        } else if (name === 'bg-file') {
+          const fileInput = elBody.querySelector('[data-el=bg-file]');
+          if (fileInput && fileInput.click) fileInput.click();
+          else setStat('这个浏览器选不了本地图片，改用图片链接');
+        } else if (name === 'bg-clear') {
+          setBackground('');
+        } else if (name === 'settings-done') {
           if (lastResults.length) {
             renderList(lastResults, listKind, labelOf(current) + ' · ' + lastResults.length + ' 条');
             renderPager();
@@ -1110,6 +1443,21 @@
       }
     });
 
+    // 选本机图片：压缩 → data URL → 存设置（input 每次 renderSettings 都会重建，所以用委托）
+    root.addEventListener('change', async (ev) => {
+      const t = ev.target;
+      if (!t || !t.matches || !t.matches('[data-el=bg-file]')) return;
+      const file = t.files && t.files[0];
+      if (!file) return;
+      setStat('正在压缩图片…');
+      try {
+        const dataUrl = await shrinkImage(file);
+        setBackground(dataUrl);
+      } catch (err) {
+        setStat('背景图失败：' + esc(String((err && err.message) || err)));
+      }
+    });
+
     root.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {
         ev.stopPropagation();
@@ -1126,6 +1474,8 @@
 
     function open() {
       root.classList.add('mk-open');
+      // 打开时回读一次：别的地方（悬浮球 ×）可能已经改过设置
+      reloadSettings();
       applySettings();
       renderTabs();
       renderScopes();
@@ -1153,6 +1503,20 @@
 
     function dispose() {
       close();
+      try {
+        window.removeEventListener('mk-settings', onWindowSettings);
+        window.removeEventListener('storage', onStorage);
+      } catch {
+        /* 忽略 */
+      }
+      if (mqList) {
+        try {
+          if (typeof mqList.removeEventListener === 'function') mqList.removeEventListener('change', onSchemeChange);
+          else if (typeof mqList.removeListener === 'function') mqList.removeListener('change', onSchemeChange);
+        } catch {
+          /* 忽略 */
+        }
+      }
       root.remove();
     }
 

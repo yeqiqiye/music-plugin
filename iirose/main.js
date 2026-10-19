@@ -19,8 +19,44 @@
 
   var VERSION = '__VERSION__';
 
-  // 幂等：同一个页面被重复注入（改 URL 后没刷新、脚本列表里贴了两遍）时不挂第二套。
-  if (window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.mounted) return;
+  // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
+  window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
+
+  /**
+   * 幂等 / 换版：
+   *   · 同版本已经装过 → 直接退出（脚本列表里贴两遍不会挂两套）
+   *   · 装着的是旧版本（extJs 里还留着老链接）→ 把旧的拆掉，这次装的说了算
+   */
+  function supersedePrevious() {
+    var prev = window.__MUSIC_IIROSE__;
+    if (!prev || !prev.mounted) return true;
+    // 同版本重复注入：什么都不挂，但注入次数要记上（设置页诊断会显示实例数）
+    if (prev.version === VERSION) {
+      prev.instances = window.__MUSIC_IIROSE_LOADS__ || 1;
+      return false;
+    }
+    try {
+      if (typeof prev.destroy === 'function') prev.destroy();
+    } catch (e) {
+      /* 旧版没有 destroy：下面靠清 DOM 兜底 */
+    }
+    return true;
+  }
+
+  /** 清掉上一次（或旧版本）留下的界面：悬浮球、⚙、面板宿主 */
+  function removeStaleNodes(doc) {
+    try {
+      var stale = doc.querySelectorAll('.mk-iirose-ball, .mk-iirose-gear, [data-music-iirose="host"], .mk-root');
+      for (var i = 0; i < stale.length; i++) {
+        var n = stale[i];
+        if (n && n.parentNode) n.parentNode.removeChild(n);
+      }
+    } catch (e) {
+      /* 忽略：清不掉也不影响接下来重新挂 */
+    }
+  }
+
+  if (!supersedePrevious()) return;
 
   // 面板源码不在运行时注入：构建脚本把它拼在这个文件前面，直接就是同一个 <script>。
   // 这样不依赖「内联 <script> 能不能执行」——很多站点的 CSP 会拦 inline，但不会拦 <script src>。
@@ -32,7 +68,6 @@
     mode: 'mk_iirose_mode',
     relay: 'mk_iirose_relay',
     ball: 'mk_iirose_ball',
-    ballHidden: 'mk_iirose_ball_hidden',
   };
   var HINT = 'Alt+T 开 / 关 · 双指上滑也能开 · 点 ▶ 发到房间';
 
@@ -431,6 +466,9 @@
     lastEnqueue: null,
     roomNow: null,
     api: null,
+    instances: window.__MUSIC_IIROSE_LOADS__ || 1,
+    settings: null,
+    gestureOn: null,
   };
 
   function parseMediaFrame(data) {
@@ -647,6 +685,8 @@
 
   function mount() {
     var doc = document;
+    // 上一次（或旧版本）留下的球 / ⚙ / 面板先清掉，避免一个页面两个入口
+    removeStaleNodes(doc);
     ensureCss(doc);
     ensurePanel();
     hostEl = doc.createElement('div');
@@ -677,10 +717,17 @@
       onModeChange: function (m) {
         lsSet(LS.mode, m);
       },
+      // 设置页底部那行「诊断」：能看出是不是有旧脚本还在跑、手势到底挂没挂
+      diagnostics: function () {
+        return {
+          version: VERSION,
+          instances: diag.instances,
+          gesture: gestureOn,
+          ball: !(ballEl && ballEl.style && ballEl.style.display === 'none'),
+        };
+      },
       onSettingsChange: function (s) {
-        panelSettings = s;
-        if (s && s.ball) showBall();
-        else hideBall();
+        applyEntrySettings(s);
       },
     });
 
@@ -709,18 +756,43 @@
     function showBall() {
       if (!ballEl) return;
       ballEl.style.display = '';
-      // 双指上滑把球叫回来时，也要把设置改回去，不然刷新又藏起来了
-      var s = readSettings();
-      if (!s.ball) {
-        s.ball = true;
-        writeSettings(s);
-        panelSettings = s;
-      }
     }
     function hideBall() {
       if (!ballEl) return;
-      lsSet(LS.ballHidden, '1');
       ballEl.style.display = 'none';
+    }
+
+    /**
+     * 设置的唯一入口：面板改了设置 / 别的实例改了 / storage 变了，全都走这里。
+     * 「关掉双指上滑」= 真的把监听拆掉，而不是留个闭包变量假装关掉了。
+     */
+    var gestureOn = false;
+    // 已经挂了手势的 document（顶层 + 同源 iframe），关手势时按这个清单逐个摘
+    var gestureTargets = [];
+    function applyEntrySettings(s) {
+      panelSettings = s || readSettings();
+      setGestureEnabled(panelSettings.gesture !== false);
+      if (panelSettings.ball !== false) showBall();
+      else hideBall();
+      diag.settings = {
+        ball: panelSettings.ball !== false,
+        gesture: panelSettings.gesture !== false,
+      };
+      diag.gestureOn = gestureOn;
+    }
+
+    // 面板发 mk-settings、别的标签页写 storage：两边都能同步
+    try {
+      window.addEventListener('mk-settings', function (ev) {
+        var d = ev && ev.detail;
+        applyEntrySettings(d && d.settings);
+      });
+      window.addEventListener('storage', function (ev) {
+        if (ev && ev.key && ev.key !== SETTINGS_KEY) return;
+        applyEntrySettings();
+      });
+    } catch (e) {
+      /* 没有 addEventListener 的老环境就算了 */
     }
     function togglePanel() {
       try {
@@ -746,8 +818,22 @@
 
     var panelSettings = readSettings();
     var saved = ballSaved();
-    if (!panelSettings.ball) ballEl.style.display = 'none';
     if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') placeBall(saved.x, saved.y);
+    applyEntrySettings(panelSettings);
+
+    // 双指上滑时手指常常顺手落在右下角：那种「顺带的」抬起不算点球
+    var activeTouches = 0;
+    function trackTouches(ev) {
+      if (ev && ev.touches) activeTouches = ev.touches.length || 0;
+    }
+    try {
+      doc.addEventListener('touchstart', trackTouches, { passive: true });
+      doc.addEventListener('touchmove', trackTouches, { passive: true });
+      doc.addEventListener('touchend', trackTouches, { passive: true });
+      doc.addEventListener('touchcancel', trackTouches, { passive: true });
+    } catch (e) {
+      /* 忽略 */
+    }
 
     var drag = null;
     function pointOf(ev) {
@@ -785,7 +871,7 @@
         if (ev.cancelable) ev.preventDefault();
       }
     }
-    function onBallUp() {
+    function onBallUp(ev) {
       if (!drag) return;
       var moved = drag.moved;
       drag = null;
@@ -799,9 +885,12 @@
           sy = r.top;
         }
         lsSet(LS.ball, JSON.stringify({ x: sx, y: sy }));
-      } else {
-        togglePanel();
+        return;
       }
+      // 多指触摸（比如双指上滑起手落在球上）不当作点击
+      var touching = ev && ev.touches ? ev.touches.length : activeTouches;
+      if (touching > 1) return;
+      togglePanel();
     }
 
     if (window.PointerEvent) {
@@ -832,6 +921,15 @@
         panelSettings = next;
         writeSettings(next);
         hideBall();
+        diag.settings = { ball: false, gesture: next.gesture !== false };
+        // 通知面板：球已经关了，设置页里的开关要跟着变（不然显示和实际对不上）
+        try {
+          window.dispatchEvent(
+            new CustomEvent('mk-settings', { detail: { settings: next, source: 'iirose-x' } }),
+          );
+        } catch (e) {
+          /* 忽略 */
+        }
       });
     }
 
@@ -839,7 +937,8 @@
     // 手机上 Alt+T 用不了，悬浮球被关掉之后总得有个入口
     var gesture = null;
     function gestureStart(ev) {
-      if (!panelSettings || !panelSettings.gesture) return;
+      // 关掉时监听已经被摘掉了，这里再判一次兜底（防止某处漏摘）
+      if (!gestureOn || !panelSettings || !panelSettings.gesture) return;
       if (ev.touches && ev.touches.length === 2) {
         gesture = {
           y: (ev.touches[0].clientY + ev.touches[1].clientY) / 2,
@@ -851,11 +950,10 @@
       }
     }
     function gestureMove(ev) {
-      if (!gesture || gesture.fired || !ev.touches || ev.touches.length !== 2) return;
+      if (!gestureOn || !gesture || gesture.fired || !ev.touches || ev.touches.length !== 2) return;
       var y = (ev.touches[0].clientY + ev.touches[1].clientY) / 2;
       if (gesture.y - y > 90 && Date.now() - gesture.t < 900) {
         gesture.fired = true;
-        showBall();
         openPanel();
       }
     }
@@ -864,26 +962,53 @@
     }
     function attachGesture(target) {
       if (!target || !target.addEventListener) return;
+      for (var i = 0; i < gestureTargets.length; i++) if (gestureTargets[i] === target) return;
       target.addEventListener('touchstart', gestureStart, { passive: true });
       target.addEventListener('touchmove', gestureMove, { passive: true });
       target.addEventListener('touchend', gestureEnd, { passive: true });
       target.addEventListener('touchcancel', gestureEnd, { passive: true });
+      gestureTargets.push(target);
     }
-    attachGesture(doc);
-    // 有些布局会把游戏塞进同源 iframe，那边也要能双指上滑
-    try {
-      var frames = doc.querySelectorAll('iframe');
-      for (var fi = 0; fi < frames.length && fi < 4; fi++) {
-        var fdoc = null;
-        try {
-          fdoc = frames[fi].contentDocument;
-        } catch (e) {
-          fdoc = null;
+    function detachGesture(target) {
+      if (!target || !target.removeEventListener) return;
+      target.removeEventListener('touchstart', gestureStart, { passive: true });
+      target.removeEventListener('touchmove', gestureMove, { passive: true });
+      target.removeEventListener('touchend', gestureEnd, { passive: true });
+      target.removeEventListener('touchcancel', gestureEnd, { passive: true });
+    }
+    /** 页面上所有能挂手势的 document：顶层 + 同源 iframe（游戏在 #mainFrame 里时用得上） */
+    function gestureDocs() {
+      var out = [doc];
+      try {
+        var frames = doc.querySelectorAll('iframe');
+        for (var fi = 0; fi < frames.length && fi < 4; fi++) {
+          var fdoc = null;
+          try {
+            fdoc = frames[fi].contentDocument;
+          } catch (e) {
+            fdoc = null;
+          }
+          if (fdoc) out.push(fdoc);
         }
-        if (fdoc) attachGesture(fdoc);
+      } catch (e) {
+        /* 跨域 iframe 就算了 */
       }
-    } catch (e) {
-      /* 跨域 iframe 就算了 */
+      return out;
+    }
+    /**
+     * 开关手势：on=true 挂监听，on=false **逐个摘掉**。
+     * 只靠一个布尔值判断「要不要响应」在真机上不够硬（页面里可能有多个 document），
+     * 所以关掉时连监听都不留 —— 这样「关了就是关了」，不存在还能滑开。
+     */
+    function setGestureEnabled(on) {
+      var targets = gestureTargets.slice();
+      for (var i = 0; i < targets.length; i++) detachGesture(targets[i]);
+      gestureTargets.length = 0;
+      gestureOn = Boolean(on);
+      gesture = null;
+      if (!gestureOn) return;
+      var docs = gestureDocs();
+      for (var j = 0; j < docs.length; j++) attachGesture(docs[j]);
     }
 
     // 没配中转时多一个 ⚙：点开就是配置表单，完全不依赖 F12
@@ -898,20 +1023,17 @@
     }
 
     var spec = parseHotkey(ls(LS.hotkey, 'Alt+T'));
-    doc.addEventListener(
-      'keydown',
-      function (ev) {
-        if (!matchHotkey(ev, spec)) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        try {
-          panel.toggle();
-        } catch (e) {
-          diag.lastError = String(e && e.message);
-        }
-      },
-      true,
-    );
+    function onHotkey(ev) {
+      if (!matchHotkey(ev, spec)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      try {
+        panel.toggle();
+      } catch (e) {
+        diag.lastError = String(e && e.message);
+      }
+    }
+    doc.addEventListener('keydown', onHotkey, true);
 
     observeRoom(locateApp());
 
@@ -920,6 +1042,42 @@
     diag.mounted = true;
     diag.state = 'ready';
     diag.socketOk = Boolean(locateApp());
+    diag.instances = window.__MUSIC_IIROSE_LOADS__ || 1;
+    diag.gestureOn = gestureOn;
+    diag.settings = {
+      ball: panelSettings.ball !== false,
+      gesture: panelSettings.gesture !== false,
+    };
+    /**
+     * 换版 / 重复注入时的拆除钩子：新版会先调它，把这一套连监听一起清掉，
+     * 免得出现「旧脚本还在响应双指上滑」。
+     */
+    diag.destroy = function () {
+      try {
+        setGestureEnabled(false);
+      } catch (e) {
+        /* 忽略 */
+      }
+      try {
+        doc.removeEventListener('keydown', onHotkey, true);
+      } catch (e) {
+        /* 忽略 */
+      }
+      try {
+        panel.dispose();
+      } catch (e) {
+        /* 忽略 */
+      }
+      [hostEl, ballEl, gearEl].forEach(function (el) {
+        try {
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch (e) {
+          /* 忽略 */
+        }
+      });
+      diag.mounted = false;
+      diag.state = 'disposed';
+    };
     // 留一个抓手：DevTools 里 __MUSIC_IIROSE__.panel.open() 能直接开面板
     diag.panel = panel;
     window.__MUSIC_IIROSE__ = diag;

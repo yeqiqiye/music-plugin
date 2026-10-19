@@ -16,6 +16,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 
 const panelSource = await readFile(join(root, 'client', 'panel-ui.js'), 'utf8');
+// 版本号从 package.json 来：别让客户端里的诊断和发版号对不上
+const pkg = JSON.parse((await readFile(join(root, 'package.json'), 'utf8')).replace(/^\uFEFF/, ''));
 // 用 JSON 编码塞进字符串字面量：单双引号、换行、反引号都不用手工转义。
 const panelLiteral = JSON.stringify(panelSource);
 
@@ -107,7 +109,7 @@ const bundle = `/**
       const module = { exports: {} };
       const name = 'music-request';
       const inject = ['slots'];
-      const VERSION = '0.2.0';
+      const VERSION = '${pkg.version}';
 
       /**
        * 诊断三件套（留着，别再删）：

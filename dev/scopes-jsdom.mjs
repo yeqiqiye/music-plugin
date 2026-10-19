@@ -145,11 +145,26 @@ check('有设置页样式', css.includes('.mk-set') && css.includes('.mk-sw'));
 check('有搜索范围样式', css.includes('.mk-scope'));
 check('有歌单/用户行样式', css.includes('.mk-entity'));
 
-// ---- 设置页：入口开关互斥 + 外观 ----
+// ---- 浅色主题：配色必须是 token，不能留深色写死值 ----
+check('深色 token 齐全', ['--mk-hover', '--mk-raised', '--mk-bar', '--mk-on-bg', '--mk-err-bg'].every((t) => css.includes(t + ':')));
+check('浅色块覆盖了悬停色', /\.mk-root\[data-theme=light\]\{[\s\S]*?--mk-hover:#eef3fa/.test(css));
+check('浅色块覆盖了播放条', /\.mk-root\[data-theme=light\]\{[\s\S]*?--mk-bar:#eef3fa/.test(css));
+check('浅色块覆盖了选中态', /\.mk-root\[data-theme=light\]\{[\s\S]*?--mk-on-bg:#e2edfa/.test(css));
+check('原生控件跟随主题（color-scheme）', css.includes('color-scheme:dark') && css.includes('color-scheme:light'));
+check('chip 选中态不再用白字', /\.mk-chip\.mk-on\{[^}]*var\(--mk-on-fg\)/.test(css));
+check('浅色强调色单独给值', css.includes('.mk-root[data-theme=light][data-accent=blue]'));
+check('有背景图样式', css.includes('.mk-bgimg') && css.includes('--mk-veil'));
+
+// ---- 设置页：入口开关互斥 + 外观 + 背景 ----
 rootEl.querySelector('[data-act=settings]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 check('打开设置页', Boolean(rootEl.querySelector('.mk-set')));
-check('有 4 个开关（悬浮球/双指/毛玻璃/紧凑）', rootEl.querySelectorAll('.mk-sw').length === 4, String(rootEl.querySelectorAll('.mk-sw').length));
+const switchNames = Array.from(rootEl.querySelectorAll('.mk-sw')).map((b) => b.dataset.set);
+check(
+  '开关是 悬浮球/双指/毛玻璃/紧凑/背景模糊',
+  ['ball', 'gesture', 'glass', 'compact', 'bgBlur'].every((n) => switchNames.includes(n)),
+  switchNames.join(','),
+);
 
 rootEl.querySelector('[data-set=ball]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
@@ -157,14 +172,74 @@ const savedSettings = JSON.parse(window.localStorage.getItem('mk_panel_settings'
 check('关悬浮球后写进 localStorage', savedSettings.ball === false, JSON.stringify(savedSettings));
 check('关掉悬浮球时自动打开双指上滑', savedSettings.gesture === true, JSON.stringify(savedSettings));
 
-rootEl.querySelectorAll('[data-set-group]')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })); // 浅色
+// 反过来：关双指上滑 → 悬浮球自动回来（但双指必须真的是 false）
+rootEl.querySelector('[data-set=gesture]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+const saved2 = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('关双指后 gesture=false', saved2.gesture === false, JSON.stringify(saved2));
+check('关双指时悬浮球自动打开', saved2.ball === true, JSON.stringify(saved2));
+
+const chipOf = (group, value) =>
+  Array.from(rootEl.querySelectorAll('[data-set-group=' + group + ']')).find((b) => b.dataset.setValue === value);
+check('主题有三档（跟随系统/深/浅）', ['auto', 'dark', 'light'].every((v) => Boolean(chipOf('theme', v))));
+
+chipOf('theme', 'light').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 check('切浅色后 root 带 data-theme=light', rootEl.getAttribute('data-theme') === 'light', String(rootEl.getAttribute('data-theme')));
+chipOf('theme', 'auto').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check(
+  '跟随系统会解析成 dark / light',
+  ['dark', 'light'].includes(rootEl.getAttribute('data-theme')),
+  String(rootEl.getAttribute('data-theme')),
+);
 
-const accentBtn = Array.from(rootEl.querySelectorAll('[data-set-group]')).find((b) => b.dataset.setValue === 'violet');
-accentBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+chipOf('accent', 'violet').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 check('切强调色后 root 带 data-accent=violet', rootEl.getAttribute('data-accent') === 'violet', String(rootEl.getAttribute('data-accent')));
+
+// ---- 自定义背景 ----
+const bgUrl = rootEl.querySelector('[data-el=bg-url]');
+check('背景输入框存在', Boolean(bgUrl));
+bgUrl.value = 'https://example.com/cover.jpg';
+rootEl.querySelector('[data-act=bg-apply]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('应用链接后 data-bg=1', rootEl.getAttribute('data-bg') === '1', String(rootEl.getAttribute('data-bg')));
+check(
+  'CSS 变量 --mk-bg-img 指向这张图',
+  rootEl.style.getPropertyValue('--mk-bg-img').includes('https://example.com/cover.jpg'),
+  rootEl.style.getPropertyValue('--mk-bg-img'),
+);
+check('背景写进 localStorage', JSON.parse(window.localStorage.getItem('mk_panel_settings')).bg === 'https://example.com/cover.jpg');
+check('预览方块用上了这张图', (rootEl.querySelector('[data-el=bg-prev]').style.backgroundImage || '').includes('cover.jpg'));
+
+// 遮罩
+chipOf('bgDim', '0.72').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('遮罩选中「重」', JSON.parse(window.localStorage.getItem('mk_panel_settings')).bgDim === 0.72);
+check('遮罩写成 --mk-veil', rootEl.style.getPropertyValue('--mk-veil') === '0.72', rootEl.style.getPropertyValue('--mk-veil'));
+
+// 非法链接要被挡掉
+rootEl.querySelector('[data-el=bg-url]').value = 'javascript:alert(1)';
+rootEl.querySelector('[data-act=bg-apply]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('javascript: 链接被拒绝', JSON.parse(window.localStorage.getItem('mk_panel_settings')).bg === 'https://example.com/cover.jpg');
+check('拒绝时有提示', /不支持/.test(rootEl.querySelector('[data-el=stat]').textContent), rootEl.querySelector('[data-el=stat]').textContent);
+
+// 清除
+rootEl.querySelector('[data-act=bg-clear]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('清除后 data-bg=0', rootEl.getAttribute('data-bg') === '0', String(rootEl.getAttribute('data-bg')));
+check('清除后 localStorage 里 bg 为空', JSON.parse(window.localStorage.getItem('mk_panel_settings')).bg === '');
+
+// ---- 外部改了设置（模拟悬浮球 ×）：面板要能同步 ----
+window.localStorage.setItem(
+  'mk_panel_settings',
+  JSON.stringify(Object.assign({}, JSON.parse(window.localStorage.getItem('mk_panel_settings')), { ball: false, gesture: true })),
+);
+window.dispatchEvent(new window.CustomEvent('mk-settings', { detail: { settings: { ball: false, gesture: true }, source: 'x' } }));
+await tick();
+check('外部改了设置后面板开关跟着变', rootEl.querySelector('[data-set=ball]').getAttribute('aria-checked') === 'false');
 
 rootEl.querySelector('[data-act=settings-done]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
