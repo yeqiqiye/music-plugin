@@ -211,6 +211,10 @@
 .mk-bg-inputs .mk-input{flex:1 1 200px;min-width:0;padding:8px 11px;font-size:13px}
 .mk-hidden{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none}
 .mk-diag{color:var(--mk-dim);font-size:11px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--mk-line);line-height:1.6}
+.mk-check{white-space:pre-wrap;word-break:break-all;font-size:11.5px;line-height:1.55;color:var(--mk-dim);
+  margin:6px 0 0;padding:8px 10px;border:1px solid var(--mk-line);border-radius:8px;background:var(--mk-raised);
+  min-height:0;font-family:ui-monospace,Consolas,monospace}
+.mk-check:empty{display:none}
 @media (max-width:640px){
   /* 手机上也是「居中窗口」，不是底部抽屉：整块面板可以按住标题栏拖动 */
   .mk-root{align-items:center;justify-content:center}
@@ -553,10 +557,53 @@
         if (d.instances) bits.push('脚本实例 ' + d.instances);
         if (d.gesture !== undefined) bits.push('双指上滑 ' + (d.gesture ? '已挂监听' : '已卸载监听'));
         if (d.ball !== undefined) bits.push('悬浮球 ' + (d.ball ? '显示中' : '已隐藏'));
+        if (opts.relayUrl) {
+          bits.push('中转 ' + String(opts.relayUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '').slice(0, 40));
+        }
         return bits.length ? '诊断：' + bits.join(' · ') : '';
       } catch {
         return '';
       }
+    }
+
+    /** 设置页里的「测一下」：直接问中转能不能用，不依赖 F12 */
+    async function runSelfCheck() {
+      const box = elBody.querySelector('[data-el=relay-check]');
+      if (!box) return;
+      const input = elBody.querySelector('[data-el=relay-url]');
+      const base = String((input && input.value) || opts.relayUrl || '').trim().replace(/\/+$/, '');
+      if (!base) {
+        box.textContent = '先填中转地址';
+        return;
+      }
+      box.textContent = '检查中…';
+      const lines = [];
+      try {
+        const h = await fetch(base + '/health', { cache: 'no-store' }).then((r) => r.json());
+        lines.push('health: ' + (h && h.ok ? 'OK · ' + (h.platforms || []).join('/') : '失败'));
+      } catch (err) {
+        lines.push('health: 连不上（' + String((err && err.message) || err) + '）');
+      }
+      try {
+        const p = await fetch(base + '/playurl?platform=bilibili&id=BV1BZbSzZEGT&mode=video', {
+          cache: 'no-store',
+        }).then((r) => r.json());
+        const d = (p && p.data) || {};
+        if (!d.playable) {
+          lines.push('B 站视频: 不可播 · ' + (d.note || d.reason || ''));
+        } else {
+          lines.push('B 站视频: ' + (d.qn ? d.qn + 'P' : '可播') + ' · ' + Math.round((d.size || 0) / 1048576) + 'MB');
+          try {
+            const r = await fetch(d.streamUrl, { headers: { range: 'bytes=0-1024' }, cache: 'no-store' });
+            lines.push('拉流: HTTP ' + r.status + ' · ' + (r.headers.get('content-type') || '?'));
+          } catch (err2) {
+            lines.push('拉流: 失败（' + String((err2 && err2.message) || err2) + '）');
+          }
+        }
+      } catch (err) {
+        lines.push('B 站视频: 请求失败（' + String((err && err.message) || err) + '）');
+      }
+      box.textContent = lines.join('\n');
     }
 
     function renderSettings() {
@@ -634,7 +681,10 @@
             '<input class="mk-input" data-el="relay-url" type="text" inputmode="url" placeholder="https://music-relay.xxx.fcapp.run">' +
             '<button class="mk-btn" data-act="relay-save">保存</button>' +
             '<button class="mk-btn mk-ghost" data-act="relay-clear">清空</button>' +
-            '</div></div>'
+            '</div>' +
+            '<div class="mk-bg-inputs"><button class="mk-btn" data-act="relay-check">测一下</button></div>' +
+            '<pre class="mk-check" data-el="relay-check"></pre>' +
+            '</div>'
           : '') +
         '<div class="mk-set-row"><div class="mk-meta"><b>完成</b><small>回到搜索</small></div>' +
         '<button class="mk-btn mk-primary" data-act="settings-done">完成</button></div>' +
@@ -1508,6 +1558,8 @@
           else setStat('这个浏览器选不了本地图片，改用图片链接');
         } else if (name === 'bg-clear') {
           setBackground('');
+        } else if (name === 'relay-check') {
+          runSelfCheck();
         } else if (name === 'relay-save') {
           const input = elBody.querySelector('[data-el=relay-url]');
           const val = input ? String(input.value || '').trim().replace(/\/+$/, '') : '';

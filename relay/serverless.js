@@ -30,7 +30,7 @@ const UA =
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,OPTIONS',
-  'access-control-allow-headers': 'content-type',
+  'access-control-allow-headers': 'content-type,range',
   'access-control-max-age': '86400',
 };
 
@@ -502,7 +502,7 @@ function allowedAudioHost(u) {
 
 const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', kugou: 'https://www.kugou.com/' };
 
-async function proxyAudio(request, target, platform, env) {
+async function proxyAudio(request, target, platform, env, mode) {
   if (!allowedAudioHost(target)) {
     let host = '';
     try {
@@ -528,7 +528,11 @@ async function proxyAudio(request, target, platform, env) {
   });
 
   const headers = new Headers(CORS);
-  headers.set('content-type', upstream.headers.get('content-type') || 'audio/mpeg');
+  // B 站 CDN 常常回 application/octet-stream；播放器靠 content-type/后缀判断能不能播，
+  // 这里统一成视频/音频类型（mode 由调用方传进来）。
+  let ct = upstream.headers.get('content-type') || '';
+  if (!ct || /octet-stream/i.test(ct)) ct = mode === 'video' ? 'video/mp4' : 'audio/mp4';
+  headers.set('content-type', ct);
   headers.set('accept-ranges', upstream.headers.get('accept-ranges') || 'bytes');
   headers.set('cache-control', 'no-store');
   const len = upstream.headers.get('content-length');
@@ -642,7 +646,8 @@ export const worker = {
     try {
       // 先判路径再判平台：不然后面「不支持的平台」会把未知路径也说成 400
       const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream'];
-      if (!KNOWN_PATHS.includes(url.pathname)) {
+      // /stream/xxx.mp4 这种带后缀的流地址也要放行（IIROSE 靠扩展名挑播放器）
+      if (!KNOWN_PATHS.includes(url.pathname) && !url.pathname.startsWith('/stream/')) {
         return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
       }
 
@@ -709,9 +714,17 @@ export const worker = {
       }
 
       // 音频/视频中转：只放行白名单域名（见 AUDIO_HOSTS），并补上 CDN 要的 Referer/Cookie
-      if (url.pathname === '/stream') {
+      if (url.pathname === '/stream' || url.pathname.startsWith('/stream/')) {
         const target = p.get('url') || '';
-        if (target) return await proxyAudio(request, target, platform, env);
+        if (target) {
+          return await proxyAudio(
+            request,
+            target,
+            platform,
+            env,
+            (p.get('mode') || '') === 'video' ? 'video' : 'audio',
+          );
+        }
         // B 站的签名地址是**认出口 IP** 的：playurl 在 A 实例拿到地址，另一实例去拉就会 403。
         // 所以这里支持「只给 id + mode」，在本次调用里现解析现拉流（同一个实例 = 同一个出口 IP）。
         const rid = (p.get('id') || '').trim();
@@ -731,7 +744,7 @@ export const worker = {
         if (!resolved || !resolved.playable || !resolved.streamUrl) {
           return json({ ok: false, error: (resolved && resolved.note) || '拿不到可播放地址' }, 502);
         }
-        return await proxyAudio(request, resolved.streamUrl, platform, env);
+        return await proxyAudio(request, resolved.streamUrl, platform, env, rmode);
       }
 
       if (url.pathname === '/playurl') {
@@ -765,8 +778,19 @@ export const worker = {
           if (request.headers.get('x-mr-binary') === '0') {
             data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
           } else {
+            // 地址带后缀（.mp4/.m4a）：IIROSE 的播放器会看扩展名挑播放器，
+            // 纯 /stream?id=... 没有后缀时它可能当成「未知媒体」不播。
+            const ext = mode === 'video' ? 'mp4' : 'm4a';
             data.streamUrl =
-              url.origin + '/stream?platform=bilibili&id=' + encodeURIComponent(id) + '&mode=' + mode;
+              url.origin +
+              '/stream/bili-' +
+              encodeURIComponent(id) +
+              '.' +
+              ext +
+              '?platform=bilibili&id=' +
+              encodeURIComponent(id) +
+              '&mode=' +
+              mode;
           }
         }
         return json({ ok: true, data });
