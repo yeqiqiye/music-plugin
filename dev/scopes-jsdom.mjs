@@ -163,10 +163,18 @@ await tick();
 check('打开设置页', Boolean(rootEl.querySelector('.mk-set')));
 const switchNames = Array.from(rootEl.querySelectorAll('.mk-sw')).map((b) => b.dataset.set);
 check(
-  '开关是 悬浮球/双指/紧凑/背景模糊（毛玻璃已去掉）',
-  ['ball', 'gesture', 'compact', 'bgBlur'].every((n) => switchNames.includes(n)) && !switchNames.includes('glass'),
+  '开关是 悬浮球/双指/点歌卡片/紧凑/背景模糊（毛玻璃已去掉）',
+  ['ball', 'gesture', 'card', 'compact', 'bgBlur'].every((n) => switchNames.includes(n)) && !switchNames.includes('glass'),
   switchNames.join(','),
 );
+
+// 关掉「发送点播卡片」：写进设置，宿主发帧时读它
+rootEl.querySelector('[data-set=card]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+const noCard = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+check('关掉点播卡片后 card=false', noCard.card === false, JSON.stringify(noCard));
+rootEl.querySelector('[data-set=card]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
 
 rootEl.querySelector('[data-set=ball]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();

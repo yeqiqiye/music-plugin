@@ -1,5 +1,5 @@
-/*! music-iirose v0.3.7 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.3.7 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.8 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.3.8 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -399,7 +399,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -421,6 +421,7 @@
       // 两个入口不能同时是关的：老数据/手改 localStorage 弄成双关时，把球放回来兜底
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
+      out.card = out.card !== false;
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -584,6 +585,9 @@
         sw('ball', '悬浮球', '右下角 ♪，可拖动；关掉后双指上滑还留着') +
         sw('gesture', '双指上滑', '手机上双指向上滑开面板；关掉会真的卸载监听') +
         '<p class="mk-note">两个入口至少留一个：想关掉这个，先把另一个打开（不会再自动帮你打开别的）。</p></div>' +
+        '<div class="mk-set-group"><h4>点歌</h4>' +
+        sw('card', '发送点播卡片', '关掉后只发媒体数据：歌照播，但公屏/前端不再出现那张点播卡片') +
+        '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
@@ -1679,7 +1683,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.3.7';
+  var VERSION = '0.3.8';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
@@ -1754,7 +1758,15 @@
 
   // 与面板共用同一把 key：面板里改的开关，这里要能读到
   var SETTINGS_KEY = 'mk_panel_settings';
-  var SETTINGS_DEFAULT = { ball: true, gesture: true, theme: 'dark', accent: 'blue', glass: false, compact: false };
+  var SETTINGS_DEFAULT = {
+    ball: true,
+    gesture: true,
+    theme: 'auto',
+    accent: 'blue',
+    glass: false,
+    compact: false,
+    card: true,
+  };
   function readSettings() {
     var out = {};
     for (var k in SETTINGS_DEFAULT) out[k] = SETTINGS_DEFAULT[k];
@@ -2034,9 +2046,26 @@
 
   // ------------------------------------------------------------ 发到房间
 
-  /** 点播两帧：先媒体数据（真正入队），再卡片（公屏可见）。返回发出去的内容，方便测试断言。 */
+  /**
+   * 卡片颜色必须是 **6 位十六进制、不带 #**（IIROSE 客户端按 `m__4…>颜色>码率` 解析）。
+   * 带 # 或 3 位简写会让客户端认不出这是点播卡片，退回成一条普通文字消息。
+   */
+  function normColor(raw) {
+    var s = String(raw == null ? '' : raw).replace(/^#/, '').replace(/[^0-9a-fA-F]/g, '');
+    if (s.length === 3) s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
+    if (s.length >= 6) return s.slice(0, 6);
+    if (!s) return 'ff9800';
+    return (s + 'ff9800').slice(0, 6);
+  }
+
+  /**
+   * 点播两帧：
+   *   1. `&1{json}` 媒体数据 —— 真正把这首歌塞进房间播放列表；
+   *   2. `m__4<来源>>标题>歌手>封面>颜色>码率` 卡片 —— 公屏/前端那张点播卡片。
+   * 卡片消息就是普通公屏消息 `{m, mc, i}`（**不能带 g**，带 g 会变成私聊，只有自己看得到）。
+   */
   function buildFrames(song, info, app) {
-    var color = (app && app.inputcolorhex) || '#ff9800';
+    var color = normColor(app && app.inputcolorhex);
     var artist = (song.artists || []).join(' & ');
     var cover = https(song.cover || '');
     var link = song.url || '';
@@ -2064,7 +2093,6 @@
       [enc(song.title), enc(artist), enc(cover), enc(color), bitrate].join('>');
 
     var payload = { m: card, mc: color, i: msgId() };
-    if (app && app.uid) payload.g = app.uid;
 
     return [media, JSON.stringify(payload)];
   }
@@ -2075,9 +2103,15 @@
       throw new Error('找不到房间连接：请先进房间并确认已登录（F5 之后再试）');
     }
     var frames = buildFrames(song, info, app);
+    // 先发媒体数据（入队/播放），再发卡片；设置里关掉「发送点播卡片」时只发前者
     app.socket.send(frames[0]);
-    app.socket.send(frames[1]);
-    diag.framesSent += 2;
+    diag.framesSent += 1;
+    var withCard = readSettings().card !== false;
+    if (withCard) {
+      app.socket.send(frames[1]);
+      diag.framesSent += 1;
+    }
+    diag.lastCard = withCard;
     diag.lastEnqueue = song.title + (song.artists && song.artists.length ? ' - ' + song.artists[0] : '');
     observeRoom(app);
     return { frames: frames, app: app };

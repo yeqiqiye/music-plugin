@@ -246,10 +246,14 @@ try {
 check('第二帧是卡片 JSON', Boolean(card), cardFrame.slice(0, 80));
 if (card) {
   check('卡片以 m__4@0> 开头', String(card.m).startsWith('m__4@0>'), String(card.m).slice(0, 24));
-  check('卡片字段顺序：标题>歌手>封面>颜色>码率', card.m === 'm__4@0>晴天>周杰伦>https:&#x2F;&#x2F;p3.music.126.net&#x2F;cover-abc.jpg>#ff9800>128', card.m);
-  check('mc 是颜色', card.mc === '#ff9800', card.mc);
+  check(
+    '卡片字段顺序：标题>歌手>封面>颜色>码率',
+    card.m === 'm__4@0>晴天>周杰伦>https:&#x2F;&#x2F;p3.music.126.net&#x2F;cover-abc.jpg>ff9800>128',
+    card.m,
+  );
+  check('mc 是 6 位十六进制颜色（不带 #）', card.mc === 'ff9800', card.mc);
   check('i 是消息 id', /^\d{12}$/.test(String(card.i)), String(card.i));
-  check('g 带上了 uid', card.g === '688829143194', String(card.g));
+  check('公屏卡片不带 g（带 g 会变成私聊，只有自己看得到）', !('g' in card), JSON.stringify(card).slice(0, 60));
 }
 check('帧计数被记录', diag && diag.framesSent === 2, String(diag && diag.framesSent));
 
@@ -352,6 +356,17 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
     check('点 ⚙ 弹出配置表单', Boolean(w2.document.querySelector('[data-mk-setup] [data-mk-input]')));
   }
   check('没配中转时不会渲染酷狗 tab', w2.document.querySelectorAll('.mk-tab').length === 1);
+}
+
+// ---------------- 9.5 设置里关掉「发送点播卡片」：只发媒体帧 ----------------
+{
+  window.localStorage.setItem('mk_panel_settings', JSON.stringify({ ball: true, gesture: true, card: false }));
+  const framesBeforeOff = sent.length;
+  panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(80);
+  check('关掉卡片后只发 1 帧', sent.length === framesBeforeOff + 1, String(sent.length - framesBeforeOff));
+  check('关掉卡片时这一帧仍是媒体数据', String(sent[framesBeforeOff] || '').startsWith('&1{'));
+  window.localStorage.setItem('mk_panel_settings', JSON.stringify({ ball: true, gesture: true, card: true }));
 }
 
 // ---------------- 10. 换版：旧版本还挂在页面里时，新的要把旧的拆掉 ----------------

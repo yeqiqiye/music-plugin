@@ -397,7 +397,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bg: '', bgDim: 0.5, bgBlur: false,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
     const instanceId = Math.random().toString(36).slice(2, 8);
@@ -419,6 +419,7 @@
       // 两个入口不能同时是关的：老数据/手改 localStorage 弄成双关时，把球放回来兜底
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
+      out.card = out.card !== false;
       out.bgBlur = Boolean(out.bgBlur);
       const dim = Number(out.bgDim);
       out.bgDim = Number.isFinite(dim) ? Math.min(1, Math.max(0, dim)) : SETTINGS_DEFAULT.bgDim;
@@ -582,6 +583,9 @@
         sw('ball', '悬浮球', '右下角 ♪，可拖动；关掉后双指上滑还留着') +
         sw('gesture', '双指上滑', '手机上双指向上滑开面板；关掉会真的卸载监听') +
         '<p class="mk-note">两个入口至少留一个：想关掉这个，先把另一个打开（不会再自动帮你打开别的）。</p></div>' +
+        '<div class="mk-set-group"><h4>点歌</h4>' +
+        sw('card', '发送点播卡片', '关掉后只发媒体数据：歌照播，但公屏/前端不再出现那张点播卡片') +
+        '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
