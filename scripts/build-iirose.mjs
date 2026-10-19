@@ -19,8 +19,9 @@ const root = join(here, '..');
 
 // 有人的编辑器给 package.json 加 BOM（PowerShell 的 Set-Content 就会），这里兜一下
 const pkg = JSON.parse((await readFile(join(root, 'package.json'), 'utf8')).replace(/^\uFEFF/, ''));
-const panelSource = await readFile(join(root, 'client', 'panel-ui.js'), 'utf8');
-const mainSource = await readFile(join(root, 'iirose', 'main.js'), 'utf8');
+// 换行统一成 LF：Windows 的 CRLF 会让产物随机器变化，CI 重建成 LF 就假红
+const panelSource = (await readFile(join(root, 'client', 'panel-ui.js'), 'utf8')).replace(/\r\n?/g, '\n');
+const mainSource = (await readFile(join(root, 'iirose', 'main.js'), 'utf8')).replace(/\r\n?/g, '\n');
 
 const banner = `/*! music-iirose v${pkg.version} —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */`;
 

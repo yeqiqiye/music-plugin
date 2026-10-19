@@ -15,7 +15,9 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 
-const panelSource = await readFile(join(root, 'client', 'panel-ui.js'), 'utf8');
+// 换行统一成 LF：Windows 上 checkout 出 CRLF 时，内联进 bundle 的字符串会变成 \r\n，
+// Linux CI 重新构建就是 \n —— 产物对比会假红。先归一，产物就和平台无关了。
+const panelSource = (await readFile(join(root, 'client', 'panel-ui.js'), 'utf8')).replace(/\r\n?/g, '\n');
 // 版本号从 package.json 来：别让客户端里的诊断和发版号对不上
 const pkg = JSON.parse((await readFile(join(root, 'package.json'), 'utf8')).replace(/^\uFEFF/, ''));
 // 用 JSON 编码塞进字符串字面量：单双引号、换行、反引号都不用手工转义。
