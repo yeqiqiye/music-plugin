@@ -784,10 +784,14 @@
         diag.lastEnqueue = 'link: ' + url;
       },
       // 「原生」模式：把链接当普通公屏消息发出去，让 IIROSE 自己解析点播（和自带点歌台同一套）
+      // B 站视频优先发 bilibilix 的转链：它 302 到 CDN mp4，IIROSE 自己解析时能播
       onNativeRequest: function (song) {
         var app = locateApp();
         if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
-        var link = song.url || 'https://www.bilibili.com/video/' + song.id;
+        var link =
+          song.platform === 'bilibili' && song.id
+            ? 'https://www.bilibilix.com/video/' + encodeURIComponent(song.id)
+            : song.url || 'https://www.bilibili.com/video/' + song.id;
         var color = normColor(app.inputcolorhex);
         app.socket.send(JSON.stringify({ m: '@ ' + link, mc: color, i: msgId() }));
         diag.framesSent += 1;

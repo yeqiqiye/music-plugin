@@ -488,8 +488,8 @@ check('酷狗卡片以 m__4@4> 开头', kgCard && String(kgCard.m).startsWith('m
     nativeMsg = null;
   }
   check(
-    '原生消息是「@ 视频链接」',
-    nativeMsg && /^@ https:\/\/www\.bilibili\.com\/video\//.test(String(nativeMsg.m)),
+    '原生消息是「@ bilibilix 转链」',
+    nativeMsg && /^@ https:\/\/www\.bilibilix\.com\/video\//.test(String(nativeMsg.m)),
     nativeMsg && String(nativeMsg.m).slice(0, 60),
   );
   applySettings({});

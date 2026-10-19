@@ -1,6 +1,6 @@
 {
   "name": "dsh-music-request",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "description": "点歌台：DSH Web 插件（Alt+T 面板，跨平台搜歌）+ IIROSE 用户脚本（一个 JS 链接即可在房间里点播）。",
   "type": "module",
