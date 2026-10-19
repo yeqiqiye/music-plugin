@@ -110,8 +110,10 @@
 .mk-body{flex:1;overflow:auto;padding:8px 10px 16px}
 .mk-sect{display:flex;align-items:center;gap:8px;padding:10px 8px 6px;color:var(--mk-dim);font-size:12px}
 .mk-sect::after{content:"";flex:1;height:1px;background:var(--mk-line)}
-.mk-song{display:flex;gap:12px;align-items:center;padding:9px 10px;border-radius:10px;border:1px solid transparent}
+.mk-song{display:flex;gap:10px;align-items:center;padding:11px 10px;border-radius:10px;border:1px solid transparent}
 .mk-song:hover{background:var(--mk-hover);border-color:var(--mk-line)}
+.mk-song .mk-cover{width:44px;height:44px;border-radius:8px}
+.mk-song .mk-cover.mk-ph{font-size:15px}
 .mk-song.mk-clickable{cursor:pointer}
 .mk-idx{width:26px;text-align:right;color:var(--mk-dim);font-size:12px;flex:none}
 .mk-meta{flex:1;min-width:0}
@@ -224,6 +226,7 @@
   .mk-tabs,.mk-scopes{padding-left:12px;padding-right:12px}
   .mk-body{padding:6px 6px 14px}
   .mk-song{padding:10px 6px;gap:9px}
+  .mk-song .mk-cover{width:44px;height:44px}
   .mk-play{width:36px;height:36px;font-size:13px}
   .mk-idx{width:18px}
   .mk-acts a{display:none}
@@ -291,11 +294,6 @@
         </div>
         <div class="mk-search">
           <input class="mk-input" data-el="kw" type="search" placeholder="搜歌名 / 歌手，例如：晴天 周杰伦" autocomplete="off">
-          <select class="mk-select" data-el="limit">
-            <option value="10">10 条</option>
-            <option value="20" selected>20 条</option>
-            <option value="30">30 条</option>
-          </select>
           <button class="mk-btn mk-primary" data-act="search">搜索</button>
         </div>
         <div class="mk-tabs" data-el="tabs"></div>
@@ -353,7 +351,6 @@
     const elTabs = $('[data-el=tabs]') || stub();
     const elScopes = $('[data-el=scopes]') || null;
     const elKw = $('[data-el=kw]') || stub();
-    const elLimit = $('[data-el=limit]') || stub();
     const elStat = $('[data-el=stat]') || stub();
     const elLoginBtn = $('[data-act=login]') || stub();
     const elNow = $('[data-el=now]') || stub();
@@ -899,6 +896,7 @@
       return `<div class="mk-song mk-clickable${isCurrent ? ' mk-playing' : ''}" data-song="${i}" title="点击复制「歌名 - 歌手」">
         <button class="mk-play${isCurrent ? ' mk-busy' : ''}" data-play="${i}" title="直接播放">${isCurrent ? '♪' : '▶'}</button>
         <div class="mk-idx">${i + 1}</div>
+        ${coverOf(s.cover, '♪')}
         <div class="mk-meta"><div class="mk-name">${esc(s.title)}</div><div class="mk-sub">${esc(sub)}</div></div>
         ${inQueue ? '<span class="mk-queuebadge">已入列</span>' : ''}
         ${badge}
@@ -1129,7 +1127,8 @@
       }
       // 换了关键词/平台就从第 1 页开始；只有显式给页码才翻页
       const target = Number(nextPage) || 1;
-      const limit = Number(elLimit.value) || 20;
+      // 每页固定 20 条（不再给 10/20/30 的选择项：翻页已经够用了）
+      const limit = 20;
       const type = scope || 'song';
       busy = true;
       setStat('<span class="mk-load"></span> 正在搜' + esc(scopeLabel()) + ' · ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));

@@ -115,6 +115,8 @@ check('调用了 api.playlist', calls.some((c) => c && c.playlist));
 check('出现歌单头', Boolean(rootEl.querySelector('.mk-detail-head')));
 check('歌单头有「全部入队」', /全部入队/.test(rootEl.querySelector('.mk-detail-head').textContent));
 check('歌单里渲染出 2 首歌', rootEl.querySelectorAll('.mk-song').length === 2);
+check('每行都有封面位（没有封面就显示占位）', rootEl.querySelectorAll('.mk-song .mk-cover').length === 2);
+check('不再有 10/20/30 条选择器', !rootEl.querySelector('[data-el=limit]'));
 
 // ---- 批量入队 ----
 rootEl.querySelector('[data-act=batch]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

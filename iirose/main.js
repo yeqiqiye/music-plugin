@@ -420,11 +420,13 @@
         l: null,
       });
 
+    // 标题/歌手要做实体转义；封面和颜色**不能**转义 —— 封面里的 / 会被转成 &#x2F;，
+    // 客户端拿到这种地址就加载不出来（房间歌单里就成了「没有图」）。
     var card =
       'm__4' +
       mark +
       '>' +
-      [enc(song.title), enc(artist), enc(cover), enc(color), bitrate].join('>');
+      [enc(song.title), enc(artist), cover, color, bitrate].join('>');
 
     var payload = { m: card, mc: color, i: msgId() };
 

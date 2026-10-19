@@ -248,9 +248,10 @@ if (card) {
   check('卡片以 m__4@0> 开头', String(card.m).startsWith('m__4@0>'), String(card.m).slice(0, 24));
   check(
     '卡片字段顺序：标题>歌手>封面>颜色>码率',
-    card.m === 'm__4@0>晴天>周杰伦>https:&#x2F;&#x2F;p3.music.126.net&#x2F;cover-abc.jpg>ff9800>128',
+    card.m === 'm__4@0>晴天>周杰伦>https://p3.music.126.net/cover-abc.jpg>ff9800>128',
     card.m,
   );
+  check('封面不做实体转义（转了 / 客户端就加载不出图）', !card.m.includes('&#x2F;'), card.m.slice(30, 80));
   check('mc 是 6 位十六进制颜色（不带 #）', card.mc === 'ff9800', card.mc);
   check('i 是消息 id', /^\d{12}$/.test(String(card.i)), String(card.i));
   check('公屏卡片不带 g（带 g 会变成私聊，只有自己看得到）', !('g' in card), JSON.stringify(card).slice(0, 60));
