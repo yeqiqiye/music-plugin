@@ -1,5 +1,5 @@
-/*! music-iirose v0.4.6 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v0.4.6 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.7 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v0.4.7 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -595,7 +595,12 @@
         if (!d.playable) {
           lines.push('B 站视频: 不可播 · ' + (d.note || d.reason || ''));
         } else {
-          lines.push('B 站视频: ' + (d.qn ? d.qn + 'P' : '可播') + ' · ' + Math.round((d.size || 0) / 1048576) + 'MB');
+          lines.push(
+            'B 站视频: ' +
+              (d.qn ? d.qn + 'P' : '可播') +
+              ' · ' +
+              (d.size ? Math.round(d.size / 1048576) + 'MB' : d.source === 'bilibilix' ? '直链(302)' : '—'),
+          );
           try {
             const r = await fetch(d.streamUrl, { headers: { range: 'bytes=0-1024' }, cache: 'no-store' });
             lines.push('拉流: HTTP ' + r.status + ' · ' + (r.headers.get('content-type') || '?'));
@@ -1837,7 +1842,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '0.4.6';
+  var VERSION = '0.4.7';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;

@@ -593,7 +593,12 @@
         if (!d.playable) {
           lines.push('B 站视频: 不可播 · ' + (d.note || d.reason || ''));
         } else {
-          lines.push('B 站视频: ' + (d.qn ? d.qn + 'P' : '可播') + ' · ' + Math.round((d.size || 0) / 1048576) + 'MB');
+          lines.push(
+            'B 站视频: ' +
+              (d.qn ? d.qn + 'P' : '可播') +
+              ' · ' +
+              (d.size ? Math.round(d.size / 1048576) + 'MB' : d.source === 'bilibilix' ? '直链(302)' : '—'),
+          );
           try {
             const r = await fetch(d.streamUrl, { headers: { range: 'bytes=0-1024' }, cache: 'no-store' });
             lines.push('拉流: HTTP ' + r.status + ' · ' + (r.headers.get('content-type') || '?'));

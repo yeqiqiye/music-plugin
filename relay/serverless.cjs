@@ -388,9 +388,38 @@ async function bilibiliPlayUrlInner(id, mode, headers) {
   if (!cid) return { playable: false, reason: 'no-cid', note: '取不到该视频的 cid' };
   const dur = Number(view?.data?.duration) || null;
 
-  // 视频：fnval=1 拿 durl（mp4 单文件，声画合一，IIROSE 只接受一个 URL）。
-  // 未登录一般最高 480P；要高清得给 BILI_COOKIE（SESSDATA）。
+  // 视频：先用 bilibilix 这类「302 直链」站点——它会把 /video/BVxxx 重定向到 B 站 CDN 的 mp4，
+  // 而且这个地址是**客户端自己**去拿的（IIROSE 播得出来），不经过我们中转、不吃出口 IP。
+  // 拿不到再退回 B 站官方 durl + /stream 中转。
   if (mode === 'video') {
+    const mirror = 'https://www.bilibilix.com/video/' + encodeURIComponent(id);
+    try {
+      const probe = await fetch(mirror, {
+        headers: { 'user-agent': UA, range: 'bytes=0-0' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(6000),
+      });
+      const st = probe.status;
+      try {
+        await probe.body?.cancel();
+      } catch {
+        /* 忽略 */
+      }
+      if (st === 200 || st === 206 || (st >= 300 && st < 400)) {
+        return {
+          playable: true,
+          mode: 'video',
+          streamUrl: mirror,
+          source: 'bilibilix',
+          ext: 'mp4',
+          qn: 64,
+          size: null,
+          durationSec: dur,
+        };
+      }
+    } catch {
+      /* 镜像站不通就走下面的官方地址 */
+    }
     const vj = await fetchJson(
       `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(id)}&cid=${cid}` +
         '&fnval=1&qn=80&fourk=1',
@@ -767,7 +796,7 @@ const worker = {
 
         // B 站的签名地址认出口 IP：这里只回「id + mode」，让 /stream 当场解析当场拉流。
         // 腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（多半 403）。
-        if (platform === 'bilibili' && data && data.playable && data.streamUrl) {
+        if (platform === 'bilibili' && data && data.playable && data.streamUrl && data.source !== 'bilibilix') {
           if (request.headers.get('x-mr-binary') === '0') {
             data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
           } else {
