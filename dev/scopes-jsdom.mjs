@@ -86,6 +86,7 @@ const panel = window.mountMusicPanel(host, {
   openOnMount: true,
   version: 'test',
   hideLogin: true,
+  hd: true,
   relayUrl: 'https://old-relay.example.com',
   onRelayChange: (u) => relayChanges.push(u),
   scopes: [
@@ -204,6 +205,7 @@ await tick();
 
 // B 站：音频轨 / 视频 二选一
 const biliChips = Array.from(rootEl.querySelectorAll('[data-set-group=bili]')).map((b) => b.dataset.setValue);
+check('HD 版才有 720P/1080P 画质档', rootEl.querySelectorAll('[data-set-group=quality]').length === 2, String(rootEl.querySelectorAll('[data-set-group=quality]').length));
 check('B 站有 音频轨/视频/外链/原生 四档', biliChips.join(',') === 'audio,video,link,native', biliChips.join(','));
 rootEl.querySelector('[data-set-group=bili][data-set-value=video]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();

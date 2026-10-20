@@ -1,5 +1,4 @@
-/*! music-iirose v1.1.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
-/*! music-iirose v1.1.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v1.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -441,7 +440,8 @@
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
-      out.quality = out.quality === '1080' ? '1080' : '720';
+      // 标准版没有 1080P：强制 720P（HD 版 opt-in）
+      out.quality = opts.hd && out.quality === '1080' ? '1080' : '720';
       out.clock = out.clock !== false;
       const alpha = Number(out.opacity);
       // 0.55 是能看清字的下限；1 = 完全不透明
@@ -738,11 +738,13 @@
         chip('bili', 'link', '外链') +
         chip('bili', 'native', '原生') +
         '</div>' +
-        '<div class="mk-set-row"><div class="mk-meta"><b>B 站画质</b><small>1080P 需要中转用 FFmpeg 合流：首播多等几秒，流量约翻倍</small></div></div>' +
-        '<div class="mk-chips">' +
-        chip('quality', '720', '720P') +
-        chip('quality', '1080', '1080P') +
-        '</div>' +
+        (opts.hd
+          ? '<div class="mk-set-row"><div class="mk-meta"><b>B 站画质</b><small>1080P 需要中转用 FFmpeg 合流：首播多等几秒，流量约翻倍</small></div></div>' +
+            '<div class="mk-chips">' +
+            chip('quality', '720', '720P') +
+            chip('quality', '1080', '1080P') +
+            '</div>'
+          : '') +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
@@ -2135,7 +2137,10 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '1.1.0';
+  var VERSION = '1.2.0';
+  // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
+  // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
+  var EDITION = 'std';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
@@ -2851,6 +2856,7 @@
       api: api(),
       openOnMount: false,
       version: VERSION,
+      hd: EDITION === 'hd',
       playMode: mode,
       modeSwitch: true,
       // IIROSE 版没有「保存登录」这回事，登录按钮只会误导人

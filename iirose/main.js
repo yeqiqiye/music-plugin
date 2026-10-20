@@ -18,6 +18,9 @@
   'use strict';
 
   var VERSION = '__VERSION__';
+  // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
+  // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
+  var EDITION = '__EDITION__';
 
   // 注入计数：设置页的诊断行会显示它 —— 大于 1 说明 extJs 里贴了不止一份脚本
   window.__MUSIC_IIROSE_LOADS__ = (window.__MUSIC_IIROSE_LOADS__ || 0) + 1;
@@ -733,6 +736,7 @@
       api: api(),
       openOnMount: false,
       version: VERSION,
+      hd: EDITION === 'hd',
       playMode: mode,
       modeSwitch: true,
       // IIROSE 版没有「保存登录」这回事，登录按钮只会误导人

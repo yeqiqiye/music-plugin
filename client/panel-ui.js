@@ -439,7 +439,8 @@
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
-      out.quality = out.quality === '1080' ? '1080' : '720';
+      // 标准版没有 1080P：强制 720P（HD 版 opt-in）
+      out.quality = opts.hd && out.quality === '1080' ? '1080' : '720';
       out.clock = out.clock !== false;
       const alpha = Number(out.opacity);
       // 0.55 是能看清字的下限；1 = 完全不透明
@@ -736,11 +737,13 @@
         chip('bili', 'link', '外链') +
         chip('bili', 'native', '原生') +
         '</div>' +
-        '<div class="mk-set-row"><div class="mk-meta"><b>B 站画质</b><small>1080P 需要中转用 FFmpeg 合流：首播多等几秒，流量约翻倍</small></div></div>' +
-        '<div class="mk-chips">' +
-        chip('quality', '720', '720P') +
-        chip('quality', '1080', '1080P') +
-        '</div>' +
+        (opts.hd
+          ? '<div class="mk-set-row"><div class="mk-meta"><b>B 站画质</b><small>1080P 需要中转用 FFmpeg 合流：首播多等几秒，流量约翻倍</small></div></div>' +
+            '<div class="mk-chips">' +
+            chip('quality', '720', '720P') +
+            chip('quality', '1080', '1080P') +
+            '</div>'
+          : '') +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
