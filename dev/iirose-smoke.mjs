@@ -122,6 +122,12 @@ function route(url) {
     }
     return { ok: true, data: [QQ_SONG] };
   }
+  if (u.includes('relay.example.com/lyric')) {
+    return {
+      ok: true,
+      data: { lrc: '[00:00.50]晴天 歌词\n[00:03.00]第二句', tlrc: '[00:00.50]sunny line\n[00:03.00]second line' },
+    };
+  }
   if (u.includes('relay.example.com/playurl')) {
     const q = new URL(u).searchParams;
     if (q.get('platform') === 'netease') {
@@ -301,6 +307,10 @@ if (card) {
   check('公屏卡片不带 g（带 g 会变成私聊，只有自己看得到）', !('g' in card), JSON.stringify(card).slice(0, 60));
 }
 check('帧计数被记录', diag && diag.framesSent === 2, String(diag && diag.framesSent));
+await tick(150);
+const lyrEl = panelEl.querySelector('[data-el=lyrics]');
+check('歌词面板显示原文', Boolean(lyrEl) && lyrEl.textContent.includes('晴天 歌词'), lyrEl ? lyrEl.textContent.slice(0, 40) : 'no el');
+check('外语歌词双行（译文）', Boolean(lyrEl) && lyrEl.textContent.includes('sunny line'));
 
 // ---------------- 5. 房间播放事件回填 ----------------
 window.socket.onmessage({ data: '&1{"s":"s://m1.mp3","d":3,"c":"","n":"晴天","r":"@0周杰伦","b":"@0","o":"","l":null}' });

@@ -811,7 +811,7 @@ const worker = {
 
     try {
       // 先判路径再判平台：不然后面「不支持的平台」会把未知路径也说成 400
-      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream', '/ffmpeg'];
+      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream', '/ffmpeg', '/lyric'];
       // /stream/xxx.mp4 这种带后缀的流地址也要放行（IIROSE 靠扩展名挑播放器）
       if (!KNOWN_PATHS.includes(url.pathname) && !url.pathname.startsWith('/stream/')) {
         return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
@@ -993,6 +993,25 @@ const worker = {
         return resp;
       }
 
+      // 歌词：目前只有网易云稳定（LRC + 翻译），QQ/B 站回一句「没有」
+      if (url.pathname === '/lyric') {
+        const lid = (p.get('id') || '').trim();
+        if (!lid) return json({ ok: false, error: '缺少 id' }, 400);
+        if (platform !== 'netease') {
+          return json({ ok: true, data: { lrc: '', tlrc: '' }, note: '这个平台没有歌词' });
+        }
+        const lj = await fetchJson(
+          'https://music.163.com/api/song/lyric?id=' + encodeURIComponent(lid) + '&lv=-1&kv=-1&tv=-1',
+          { referer: 'https://music.163.com/', cookie: (env && env.NETEASE_COOKIE) || '' },
+        );
+        return json({
+          ok: true,
+          data: {
+            lrc: (lj && lj.lrc && lj.lrc.lyric) || '',
+            tlrc: (lj && lj.tlyric && lj.tlyric.lyric) || '',
+          },
+        });
+      }
       if (url.pathname === '/playurl') {
         const id = (p.get('id') || '').trim();
         if (!id) return json({ ok: false, error: '缺少 id' }, 400);

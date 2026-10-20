@@ -14,9 +14,9 @@
   'use strict';
 
   const PLATFORM_FALLBACK = [
-    { id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' },
-    { id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' },
-    { id: 'bilibili', label: 'B 站（Live / MV）', home: 'https://www.bilibili.com/' },
+    { id: 'netease', label: '网易云音乐', icon: '🎵', home: 'https://music.163.com/' },
+    { id: 'qq', label: 'QQ 音乐', icon: '🎧', home: 'https://y.qq.com/' },
+    { id: 'bilibili', label: 'B 站（Live / MV）', icon: '📺', home: 'https://www.bilibili.com/' },
   ];
 
   const CSS = `
@@ -76,7 +76,10 @@
 .mk-root[data-bg="1"] .mk-card>.mk-bgimg,
 .mk-root[data-bg="1"] .mk-card>.mk-scrim{display:block;position:absolute;inset:0;z-index:0;pointer-events:none}
 .mk-root[data-bg="1"] .mk-card>.mk-bgimg{background-image:var(--mk-bg-img,none);background-size:cover;
-  background-position:center;filter:blur(var(--mk-bg-blur,0px));transform:scale(1.06)}
+  background-position:center;
+  filter:blur(var(--mk-bg-blur,0px)) brightness(var(--mk-bg-bright,1));
+  transform:scale(var(--mk-bg-zoom,1.06)) translate(var(--mk-bg-x,0%), var(--mk-bg-y,0%));
+  opacity:var(--mk-alpha,1);transition:opacity .15s ease}
 .mk-root[data-bg="1"] .mk-card>.mk-scrim{background:var(--mk-scrim);opacity:var(--mk-veil,0)}
 .mk-root[data-bg="1"] .mk-head,.mk-root[data-bg="1"] .mk-body{background:transparent}
 .mk-root[data-bg="1"]{--mk-bar:rgba(16,23,32,.82);--mk-pager-bg:rgba(15,22,31,.82)}
@@ -95,6 +98,17 @@
 .mk-bili .mk-bf-input{flex:1 1 120px;min-width:110px}
 .mk-sel{width:15px;height:15px;accent-color:var(--mk-accent);margin:0 4px 0 0;flex:none;cursor:pointer}
 .mk-range{width:100%;margin:8px 0 2px;accent-color:var(--mk-accent)}
+.mk-lyrics{display:none;padding:10px 16px 6px;max-height:24vh;overflow:auto;text-align:center;
+  font-size:14px;line-height:1.65;color:var(--mk-dim);scroll-behavior:smooth}
+.mk-lyrics.mk-on{display:block}
+.mk-lyrics[data-size=sm]{font-size:12.5px}
+.mk-lyrics[data-size=lg]{font-size:17px}
+.mk-lyrics .ln{padding:2px 0;transition:color .12s,transform .12s;white-space:pre-wrap}
+.mk-lyrics .ln.on{color:var(--mk-accent);font-weight:700;transform:scale(1.02)}
+.mk-lyrics .tr{display:block;font-size:.85em;opacity:.72;font-weight:400}
+.mk-lyrics .hint{opacity:.6;font-size:12px}
+.mk-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin:2px 0 6px}
+.mk-edit-grid label{display:flex;flex-direction:column;font-size:11.5px;color:var(--mk-dim);gap:2px}
 .mk-badge{font-size:12px;color:var(--mk-accent);font-variant-numeric:tabular-nums;font-weight:600}
 .mk-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--mk-line)}
 .mk-title{font-size:16px;font-weight:700;letter-spacing:.3px}
@@ -113,6 +127,7 @@
 .mk-select{background:var(--mk-input);color:inherit;border:1px solid var(--mk-line);
   border-radius:10px;padding:10px 12px;font-size:13px;outline:none}
 .mk-tabs{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap;border-bottom:1px solid var(--mk-line)}
+.mk-tab-ico{margin-right:4px;font-size:13px}
 .mk-tab{background:transparent;color:var(--mk-dim);border:1px solid transparent;border-radius:8px;
   padding:6px 12px;font-size:13px;cursor:pointer}
 .mk-tab:hover{color:var(--mk-fg);background:var(--mk-hover)}
@@ -318,6 +333,7 @@
         <div class="mk-bili" data-el="bili"></div>
         <div class="mk-body" data-el="body"></div>
         <div class="mk-pager" data-el="pager"></div>
+        <div class="mk-lyrics" data-el="lyrics"></div>
         <div class="mk-player">
           <button class="mk-ctl" data-act="prev" title="上一首">⏮</button>
           <button class="mk-ctl mk-main" data-act="toggle-play" title="播放 / 暂停">▶</button>
@@ -366,6 +382,7 @@
     // 手机端「居中窗口」的拖动位移：只在本次页面会话里记着，不写 localStorage
     const cardOffset = { x: 0, y: 0 };
     const elPager = $('[data-el=pager]') || stub();
+    const elLyrics = $('[data-el=lyrics]') || null;
     const elTabs = $('[data-el=tabs]') || stub();
     const elScopes = $('[data-el=scopes]') || null;
     const elBili = $('[data-el=bili]') || null;
@@ -421,6 +438,8 @@
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
       card: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
+      bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
+      lyric: true, lyricSize: 'md',
       opacity: 1, clock: true,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
@@ -450,6 +469,16 @@
       // 标准版没有 1080P：强制 720P（HD 版 opt-in）
       out.quality = opts.hd && out.quality === '1080' ? '1080' : '720';
       out.clock = out.clock !== false;
+      out.lyric = out.lyric !== false;
+      out.lyricSize = out.lyricSize === 'sm' || out.lyricSize === 'lg' ? out.lyricSize : 'md';
+      const z = Number(out.bgZoom);
+      out.bgZoom = Number.isFinite(z) ? Math.min(2.5, Math.max(1, z)) : SETTINGS_DEFAULT.bgZoom;
+      const bx = Number(out.bgX);
+      out.bgX = Number.isFinite(bx) ? Math.min(50, Math.max(-50, bx)) : 0;
+      const by = Number(out.bgY);
+      out.bgY = Number.isFinite(by) ? Math.min(50, Math.max(-50, by)) : 0;
+      const br = Number(out.bgBright);
+      out.bgBright = Number.isFinite(br) ? Math.min(1.6, Math.max(0.4, br)) : 1;
       const alpha = Number(out.opacity);
       // 0.55 是能看清字的下限；1 = 完全不透明
       out.opacity = Number.isFinite(alpha) ? Math.min(1, Math.max(0.55, alpha)) : SETTINGS_DEFAULT.opacity;
@@ -528,6 +557,10 @@
       }
       st.setProperty('--mk-veil', String(settings.bgDim || 0));
       st.setProperty('--mk-bg-blur', settings.bgBlur ? '10px' : '0px');
+      st.setProperty('--mk-bg-zoom', String(settings.bgZoom || 1.06));
+      st.setProperty('--mk-bg-x', (settings.bgX || 0) + '%');
+      st.setProperty('--mk-bg-y', (settings.bgY || 0) + '%');
+      st.setProperty('--mk-bg-bright', String(settings.bgBright || 1));
     }
 
     function applySettings() {
@@ -541,6 +574,7 @@
       }
       applyBackground();
       applyClock();
+      renderLyrics();
     }
 
     /** 顶栏时钟（精确到秒），可在设置里关掉 */
@@ -754,6 +788,14 @@
           : '') +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
+        sw('lyric', '显示歌词', '有歌词的曲目会在面板里滚动，外语歌显示原文 + 译文') +
+        (settings.lyric === false
+          ? ''
+          : '<div class="mk-chips">' +
+            chip('lyricSize', 'sm', '小字') +
+            chip('lyricSize', 'md', '中字') +
+            chip('lyricSize', 'lg', '大字') +
+            '</div>') +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
         chip('theme', 'auto', '跟随系统') +
@@ -796,6 +838,24 @@
         chip('bgDim', 0.72, '重') +
         '</div>' +
         sw('bgBlur', '背景模糊', '图片糊一层，更像毛玻璃') +
+        (settings.bg
+          ? '<div class="mk-set-row"><div class="mk-meta"><b>图片调整</b><small>缩放 / 左右 / 上下 / 亮度，拖动立即生效</small></div></div>' +
+            '<div class="mk-edit-grid">' +
+            '<label>缩放<input class="mk-range" data-el="bg-zoom" type="range" min="100" max="250" step="1" value="' +
+            Math.round((settings.bgZoom || 1.06) * 100) +
+            '"></label>' +
+            '<label>左右<input class="mk-range" data-el="bg-x" type="range" min="-50" max="50" step="1" value="' +
+            Math.round(settings.bgX || 0) +
+            '"></label>' +
+            '<label>上下<input class="mk-range" data-el="bg-y" type="range" min="-50" max="50" step="1" value="' +
+            Math.round(settings.bgY || 0) +
+            '"></label>' +
+            '<label>亮度<input class="mk-range" data-el="bg-bright" type="range" min="40" max="160" step="1" value="' +
+            Math.round((settings.bgBright || 1) * 100) +
+            '"></label>' +
+            '</div>' +
+            '<div class="mk-bg-inputs"><button class="mk-btn mk-ghost" data-act="bg-reset">恢复默认</button></div>'
+          : '') +
         '</div>' +
         (typeof opts.onRelayChange === 'function'
           ? '<div class="mk-set-group"><h4>中转</h4>' +
@@ -979,7 +1039,7 @@
       elTabs.innerHTML = platforms
         .map(
           (p) =>
-            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}" data-tab="${esc(p.id)}">${esc(p.label)}</button>`,
+            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}" data-tab="${esc(p.id)}">${p.icon ? '<span class="mk-tab-ico">' + esc(p.icon) + '</span>' : ''}${esc(p.label)}</button>`,
         )
         .join('');
     }
@@ -1341,7 +1401,24 @@
     if (elBody.addEventListener) {
       elBody.addEventListener('input', (ev) => {
         const t = ev.target;
-        if (!t || typeof t.getAttribute !== 'function' || t.getAttribute('data-el') !== 'opacity') return;
+        if (!t || typeof t.getAttribute !== 'function') return;
+        const bgField = t.getAttribute('data-el');
+        if (bgField === 'bg-zoom' || bgField === 'bg-x' || bgField === 'bg-y' || bgField === 'bg-bright') {
+          const v = Number(t.value);
+          const patch =
+            bgField === 'bg-zoom'
+              ? { bgZoom: v / 100 }
+              : bgField === 'bg-x'
+                ? { bgX: v }
+                : bgField === 'bg-y'
+                  ? { bgY: v }
+                  : { bgBright: v / 100 };
+          settings = normalizeSettings(Object.assign({}, settings, patch));
+          saveSettings();
+          applySettings();
+          return;
+        }
+        if (t.getAttribute('data-el') !== 'opacity') return;
         const pct = Math.min(100, Math.max(55, Math.round(Number(t.value) || 100)));
         settings = normalizeSettings(Object.assign({}, settings, { opacity: pct / 100 }));
         saveSettings();
@@ -1657,6 +1734,126 @@
       renderQueue();
     }
 
+    // ---------------------------------------------------------------- 歌词
+    let lyricLines = [];
+    let lyricTimer = null;
+    let lyricT0 = 0;
+    let lyricIdx = -1;
+    let currentLyricSong = null;
+
+    /** LRC → [{t, text, tr}]，支持一行多个时间戳 */
+    function parseLrc(text) {
+      const out = [];
+      String(text || '')
+        .split(/\r?\n/)
+        .forEach((line) => {
+          const stamps = line.match(/\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g);
+          if (!stamps) return;
+          const body = line.replace(/\[[^\]]*\]/g, '').trim();
+          if (!body) return;
+          stamps.forEach((s) => {
+            const m = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/.exec(s);
+            if (!m) return;
+            out.push({ t: Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number('0.' + m[3]) : 0), text: body, tr: '' });
+          });
+        });
+      return out.sort((a, b) => a.t - b.t);
+    }
+
+    /** 把翻译按时间对齐到原文上（外语歌就是两行：原文 + 译文） */
+    function mergeTranslation(lines, tText) {
+      const tr = parseLrc(tText);
+      if (!tr.length) return lines;
+      const byT = new Map();
+      tr.forEach((x) => byT.set(Math.round(x.t * 10), x.text));
+      lines.forEach((l) => {
+        const hit = byT.get(Math.round(l.t * 10));
+        if (hit) l.tr = hit;
+      });
+      return lines;
+    }
+
+    function renderLyrics() {
+      if (!elLyrics) return;
+      elLyrics.setAttribute('data-size', settings.lyricSize || 'md');
+      const on = settings.lyric !== false && Boolean(currentLyricSong);
+      if (!on) {
+        elLyrics.classList.remove('mk-on');
+        elLyrics.innerHTML = '';
+        return;
+      }
+      if (!lyricLines.length) {
+        elLyrics.innerHTML = '<div class="hint">没有歌词（或还在加载）</div>';
+        elLyrics.classList.add('mk-on');
+        return;
+      }
+      elLyrics.innerHTML = lyricLines
+        .map(
+          (l, i) =>
+            '<div class="ln" data-ln="' +
+            i +
+            '">' +
+            esc(l.text) +
+            (l.tr ? '<span class="tr">' + esc(l.tr) + '</span>' : '') +
+            '</div>',
+        )
+        .join('');
+      elLyrics.classList.add('mk-on');
+      lyricIdx = -1;
+    }
+
+    /** 本机模式跟 audio 走；房间模式只能按「发出去之后过了多久」估 */
+    function lyricTime() {
+      if (playMode === 'local' && elAudio && !elAudio.paused) return Number(elAudio.currentTime) || 0;
+      return (Date.now() - lyricT0) / 1000;
+    }
+
+    function tickLyric() {
+      if (!elLyrics || !lyricLines.length || !elLyrics.classList.contains('mk-on')) return;
+      const t = lyricTime();
+      let idx = -1;
+      for (let i = 0; i < lyricLines.length; i += 1) {
+        if (lyricLines[i].t <= t + 0.2) idx = i;
+        else break;
+      }
+      if (idx === lyricIdx) return;
+      lyricIdx = idx;
+      const olds = elLyrics.querySelectorAll('.ln.on');
+      for (let i = 0; i < olds.length; i += 1) olds[i].classList.remove('on');
+      const cur = elLyrics.querySelector('[data-ln="' + idx + '"]');
+      if (cur) {
+        cur.classList.add('on');
+        if (typeof cur.scrollIntoView === 'function') {
+          try {
+            cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          } catch (e) {
+            /* 某些环境不支持参数 */
+          }
+        }
+      }
+    }
+
+    function startLyric(song) {
+      currentLyricSong = song || null;
+      lyricLines = [];
+      lyricT0 = Date.now();
+      renderLyrics();
+      if (!song || typeof api.lyric !== 'function') return;
+      api
+        .lyric({ platform: song.platform, id: song.id })
+        .then((d) => {
+          if (!currentLyricSong || currentLyricSong.id !== song.id) return; // 已经切歌了
+          let lines = parseLrc(d && d.lrc);
+          if (lines.length) lines = mergeTranslation(lines, d && d.tlrc);
+          lyricLines = lines;
+          renderLyrics();
+        })
+        .catch(() => {
+          /* 没歌词就算了 */
+        });
+      if (lyricTimer) clearInterval(lyricTimer);
+      lyricTimer = setInterval(tickLyric, 300);
+    }
     // ---------------------------------------------------------------- 点歌历史
     // 存在本机（localStorage），不联网、不上传：只记「我点过什么」。
     const HIST_KEY = 'mk_history';
@@ -1696,6 +1893,7 @@
         cover: song.cover || '',
         mode: mode || 'room',
       });
+      startLyric(song);
       if (history.length > HIST_MAX) history = history.slice(0, HIST_MAX);
       saveHistory();
       const btn = root.querySelector('[data-act=history]');
@@ -2231,7 +2429,6 @@
           '</div>';
       }
       doc.addEventListener('keydown', onDocKey, true);
-      setTimeout(() => elKw.focus(), 0);
       refreshSession();
     }
 

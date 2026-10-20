@@ -727,6 +727,13 @@
       playlist: playlistSongs,
       userPlaylists: userPlaylists,
       playurl: songUrl,
+      lyric: function (opts) {
+        var base = relayBase();
+        if (!base) return Promise.resolve(null);
+        return request('/lyric', { platform: (opts && opts.platform) || 'netease', id: (opts && opts.id) || '' }, base).then(function (out) {
+          return (out && out.data) || null;
+        });
+      },
       session: function () {
         return Promise.resolve({ platform: 'netease', loggedIn: false, nickname: null });
       },
