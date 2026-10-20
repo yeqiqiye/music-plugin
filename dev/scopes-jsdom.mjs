@@ -146,7 +146,7 @@ check('队列页显示听歌列表', /听歌列表/.test(rootEl.querySelector('.
 check('队列页有 1 首', rootEl.querySelectorAll('.mk-song').length === 1);
 rootEl.querySelector('[data-act=queue-clear]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
-check('清空后队列为空', /队列还是空的/.test(rootEl.querySelector('.mk-body').textContent));
+check('清空后本机队列为空', /本机队列是空的/.test(rootEl.querySelector('.mk-body').textContent));
 
 // ---- 返回 ----
 rootEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

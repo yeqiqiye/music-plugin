@@ -1,4 +1,4 @@
-/*! music-iirose v1.3.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v1.4.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -405,6 +405,8 @@
     const biliFilters = { order: 'totalrank', duration: '0', days: '0', author: '' };
     let inPlaylist = false;
     let queueOpen = false;
+    // 房间歌单（服务器 %a 的回包），条目带 requester = 谁点的
+    let roomQueue = [];
     const selected = new Set();
     let playCurrent = null;
     // 搜歌 / 搜用户 / 搜歌单
@@ -1660,58 +1662,91 @@
         detailBack = { list: lastResults, kind: listKind, page: page };
       }
       queueOpen = true;
-      if (!playQueue.length) {
-        elBody.innerHTML =
-          '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
-          '<div class="mk-sub">队列 0 首</div></div>' +
-          '<div class="mk-detail-acts"><button class="mk-btn" data-act="back">‹ 返回</button></div></div>' +
-          '<div class="mk-empty">队列还是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
-        if (elPager && elPager.classList) elPager.classList.remove('mk-on');
-        setStat('队列 0 首');
-        return;
+      // 打开队列页就顺手问一次服务器：房间队列 + 点歌人
+      if (typeof opts.onRefreshRoomQueue === 'function') {
+        try {
+          opts.onRefreshRoomQueue();
+        } catch (e) {
+          /* 房间可能还没连上，忽略 */
+        }
       }
+      const roomRows = roomQueue.length
+        ? roomQueue
+            .map((it, i) => {
+              const sub = [it.artist, it.requester ? '点歌：' + it.requester : '']
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                '<div class="mk-song' +
+                (i === 0 ? ' mk-playing' : '') +
+                '">' +
+                '<div class="mk-idx">' +
+                (i + 1) +
+                '</div>' +
+                coverOf(it.cover, '♪') +
+                '<div class="mk-meta"><div class="mk-name">' +
+                esc(it.title || '（无标题）') +
+                '</div><div class="mk-sub">' +
+                esc(sub) +
+                '</div></div>' +
+                '<div class="mk-acts"><span class="mk-tag">' +
+                esc(fmtDur((it.length || 0) * 1000)) +
+                '</span></div></div>'
+              );
+            })
+            .join('')
+        : '<div class="mk-empty">服务器没返回队列（房间可能没开点播，或还没刷新）。点上面「刷新」再试。</div>';
+      const roomSection =
+        '<div class="mk-sect">房间队列 · ' +
+        roomQueue.length +
+        ' 首（服务器）' +
+        '</div>' +
+        roomRows;
+      const localRows = playQueue.length
+        ? playQueue
+            .map((s, i) => {
+              const cur = i === playIndex;
+              const sub = [labelOf(s.platform), (s.artists || []).join(' / '), fmtDur(s.durationMs)]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                '<div class="mk-song' +
+                (cur ? ' mk-playing' : '') +
+                '">' +
+                '<button class="mk-play' +
+                (cur ? ' mk-busy' : '') +
+                '" data-act="qplay" data-i="' +
+                i +
+                '">' +
+                (cur ? '♪' : '▶') +
+                '</button>' +
+                '<div class="mk-idx">' +
+                (i + 1) +
+                '</div>' +
+                coverOf(s.cover, '♪') +
+                '<div class="mk-meta"><div class="mk-name">' +
+                esc(s.title) +
+                '</div><div class="mk-sub">' +
+                esc(sub) +
+                '</div></div>' +
+                '<div class="mk-acts"><button data-act="qdel" data-i="' +
+                i +
+                '" title="从本机队列移除">✕</button></div></div>'
+              );
+            })
+            .join('')
+        : '<div class="mk-empty">本机队列是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
       const head =
         '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
         '<div class="mk-sub">' +
-        esc(playQueue.length + ' 首 · 当前第 ' + (playIndex + 1) + ' 首') +
+        esc('房间 ' + roomQueue.length + ' 首 · 本机 ' + playQueue.length + ' 首') +
         '</div></div><div class="mk-detail-acts">' +
-        '<button class="mk-btn" data-act="queue-clear">清空</button>' +
+        '<button class="mk-btn mk-primary" data-act="queue-refresh">刷新</button>' +
+        '<button class="mk-btn" data-act="queue-clear">清空本机</button>' +
         '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
-      const rows = playQueue
-        .map((s, i) => {
-          const cur = i === playIndex;
-          const sub = [labelOf(s.platform), (s.artists || []).join(' / '), fmtDur(s.durationMs)]
-            .filter(Boolean)
-            .join(' · ');
-          return (
-            '<div class="mk-song' +
-            (cur ? ' mk-playing' : '') +
-            '">' +
-            '<button class="mk-play' +
-            (cur ? ' mk-busy' : '') +
-            '" data-act="qplay" data-i="' +
-            i +
-            '">' +
-            (cur ? '♪' : '▶') +
-            '</button>' +
-            '<div class="mk-idx">' +
-            (i + 1) +
-            '</div>' +
-            coverOf(s.cover, '♪') +
-            '<div class="mk-meta"><div class="mk-name">' +
-            esc(s.title) +
-            '</div><div class="mk-sub">' +
-            esc(sub) +
-            '</div></div>' +
-            '<div class="mk-acts"><button data-act="qdel" data-i="' +
-            i +
-            '" title="从队列移除">✕</button></div></div>'
-          );
-        })
-        .join('');
-      elBody.innerHTML = head + rows;
+      elBody.innerHTML = head + roomSection + '<div class="mk-sect">本机队列 · 试听 / 顺序播</div>' + localRows;
       if (elPager && elPager.classList) elPager.classList.remove('mk-on');
-      setStat('队列 ' + playQueue.length + ' 首');
+      setStat('房间 ' + roomQueue.length + ' 首 · 本机 ' + playQueue.length + ' 首');
     }
 
     // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
@@ -1998,7 +2033,9 @@
         else if (name === 'play-sel') playSelected();
         else if (name === 'sel-all') toggleSelectAll();
         else if (name === 'queue') renderQueue();
-        else if (name === 'queue-clear') {
+        else if (name === 'queue-refresh') {
+          renderQueue();
+        } else if (name === 'queue-clear') {
           playQueue = [];
           playIndex = -1;
           renderQueue();
@@ -2188,6 +2225,13 @@
       setRoomNow(text, sub) {
         setNow(text || '未在播放', sub || '');
       },
+      /** 宿主动手把服务器返回的房间歌单塞进来（%a 回包解析后的数组） */
+      setRoomQueue(list) {
+        roomQueue = Array.isArray(list) ? list.slice() : [];
+        const btn = root.querySelector('[data-act=queue]');
+        if (btn) btn.textContent = roomQueue.length ? '队列 ' + roomQueue.length : '队列';
+        if (queueOpen) renderQueue();
+      },
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
       queue: () => playQueue.slice(),
@@ -2219,7 +2263,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '1.3.0';
+  var VERSION = '1.4.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
@@ -2335,6 +2379,36 @@
 
   function msgId() {
     return String(Date.now()).slice(-5) + String(Math.random()).slice(-7);
+  }
+
+  /** 反向：&amp; &lt; … → 原字符（房间歌单是 `%a` 的文本回包，字段都是转义过的） */
+  function dec(str) {
+    return String(str == null ? '' : str)
+      .replace(/&#x2F;/g, '/')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  }
+
+  /**
+   * 解析房间歌单回包：`a1` + `<` 分隔的条目，每条是 `时长>标题>歌手>点歌人>封面`
+   * （协议来自 koishi-plugin-adapter-iirose 的 encoder/system/media/getMusicList.ts）
+   */
+  function parseRoomQueue(raw) {
+    var content = String(raw || '').slice(2);
+    if (!content) return [];
+    return content.split('<').map(function (seg) {
+      var t = seg.split('>');
+      return {
+        length: Number(t[0]) || 0,
+        title: dec(t[1] || ''),
+        artist: dec(String(t[2] || '').replace(/^@\d+/, '')),
+        requester: dec(t[3] || ''),
+        cover: t[4] ? 'http' + t[4] : '',
+      };
+    });
   }
 
   /** 163 的 picUrl 是 http，页面上要 https，否则混合内容会被拦 */
@@ -2680,6 +2754,9 @@
     diag.lastCard = withCard;
     diag.lastEnqueue = song.title + (song.artists && song.artists.length ? ' - ' + song.artists[0] : '');
     observeRoom(app);
+    setTimeout(function () {
+      askRoomQueue(app);
+    }, 1500);
     return { frames: frames, app: app };
   }
 
@@ -2741,12 +2818,39 @@
    * 只「观察」不「拦截」：包一层 onmessage，先把消息交给原 handler，再顺手更新面板。
    * 绝不能返回别的值，否则会把 IIROSE 自己的消息处理搞坏。
    */
+  /** 向服务器要一次房间歌单（%a），回包是 a1 开头，在 observeRoom 里解析 */
+  function askRoomQueue(app) {
+    var a = app || locateApp();
+    if (!a || !a.socket) return false;
+    try {
+      a.socket.send('%a');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function observeRoom(app) {
     if (!app || !app.socket || app.socket.__mkObserved) return;
     var orig = app.socket.onmessage;
     app.socket.onmessage = function (ev) {
       try {
-        var media = parseMediaFrame(ev && ev.data);
+        var raw = ev && ev.data;
+        var obj = null;
+        if (typeof raw === 'string') {
+          try {
+            obj = JSON.parse(raw);
+          } catch (e2) {
+            obj = null;
+          }
+        }
+        // 房间歌单回包（`%a` 的响应）：a1 开头，条数/歌名/歌手/点歌人都在里面
+        if (obj && typeof obj.m === 'string' && obj.m.slice(0, 2) === 'a1') {
+          var q = parseRoomQueue(obj.m);
+          diag.roomQueue = q.length;
+          if (panel && panel.setRoomQueue) panel.setRoomQueue(q);
+        }
+        var media = parseMediaFrame(raw);
         if (media && media.n) {
           var roomArtist = String(media.r || '').replace(/^@\d+/, '');
           diag.roomNow = media.n + (roomArtist ? ' - ' + roomArtist : '');
@@ -2947,6 +3051,9 @@
       openOnMount: false,
       version: VERSION,
       hd: EDITION === 'hd',
+      onRefreshRoomQueue: function () {
+        return askRoomQueue();
+      },
       playMode: mode,
       modeSwitch: true,
       // IIROSE 版没有「保存登录」这回事，登录按钮只会误导人

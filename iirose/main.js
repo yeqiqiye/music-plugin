@@ -135,6 +135,36 @@
     return String(Date.now()).slice(-5) + String(Math.random()).slice(-7);
   }
 
+  /** 反向：&amp; &lt; … → 原字符（房间歌单是 `%a` 的文本回包，字段都是转义过的） */
+  function dec(str) {
+    return String(str == null ? '' : str)
+      .replace(/&#x2F;/g, '/')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  }
+
+  /**
+   * 解析房间歌单回包：`a1` + `<` 分隔的条目，每条是 `时长>标题>歌手>点歌人>封面`
+   * （协议来自 koishi-plugin-adapter-iirose 的 encoder/system/media/getMusicList.ts）
+   */
+  function parseRoomQueue(raw) {
+    var content = String(raw || '').slice(2);
+    if (!content) return [];
+    return content.split('<').map(function (seg) {
+      var t = seg.split('>');
+      return {
+        length: Number(t[0]) || 0,
+        title: dec(t[1] || ''),
+        artist: dec(String(t[2] || '').replace(/^@\d+/, '')),
+        requester: dec(t[3] || ''),
+        cover: t[4] ? 'http' + t[4] : '',
+      };
+    });
+  }
+
   /** 163 的 picUrl 是 http，页面上要 https，否则混合内容会被拦 */
   function https(url) {
     if (!url) return '';
@@ -478,6 +508,9 @@
     diag.lastCard = withCard;
     diag.lastEnqueue = song.title + (song.artists && song.artists.length ? ' - ' + song.artists[0] : '');
     observeRoom(app);
+    setTimeout(function () {
+      askRoomQueue(app);
+    }, 1500);
     return { frames: frames, app: app };
   }
 
@@ -539,12 +572,39 @@
    * 只「观察」不「拦截」：包一层 onmessage，先把消息交给原 handler，再顺手更新面板。
    * 绝不能返回别的值，否则会把 IIROSE 自己的消息处理搞坏。
    */
+  /** 向服务器要一次房间歌单（%a），回包是 a1 开头，在 observeRoom 里解析 */
+  function askRoomQueue(app) {
+    var a = app || locateApp();
+    if (!a || !a.socket) return false;
+    try {
+      a.socket.send('%a');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function observeRoom(app) {
     if (!app || !app.socket || app.socket.__mkObserved) return;
     var orig = app.socket.onmessage;
     app.socket.onmessage = function (ev) {
       try {
-        var media = parseMediaFrame(ev && ev.data);
+        var raw = ev && ev.data;
+        var obj = null;
+        if (typeof raw === 'string') {
+          try {
+            obj = JSON.parse(raw);
+          } catch (e2) {
+            obj = null;
+          }
+        }
+        // 房间歌单回包（`%a` 的响应）：a1 开头，条数/歌名/歌手/点歌人都在里面
+        if (obj && typeof obj.m === 'string' && obj.m.slice(0, 2) === 'a1') {
+          var q = parseRoomQueue(obj.m);
+          diag.roomQueue = q.length;
+          if (panel && panel.setRoomQueue) panel.setRoomQueue(q);
+        }
+        var media = parseMediaFrame(raw);
         if (media && media.n) {
           var roomArtist = String(media.r || '').replace(/^@\d+/, '');
           diag.roomNow = media.n + (roomArtist ? ' - ' + roomArtist : '');
@@ -745,6 +805,9 @@
       openOnMount: false,
       version: VERSION,
       hd: EDITION === 'hd',
+      onRefreshRoomQueue: function () {
+        return askRoomQueue();
+      },
       playMode: mode,
       modeSwitch: true,
       // IIROSE 版没有「保存登录」这回事，登录按钮只会误导人

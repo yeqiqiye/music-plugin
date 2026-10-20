@@ -404,6 +404,8 @@
     const biliFilters = { order: 'totalrank', duration: '0', days: '0', author: '' };
     let inPlaylist = false;
     let queueOpen = false;
+    // 房间歌单（服务器 %a 的回包），条目带 requester = 谁点的
+    let roomQueue = [];
     const selected = new Set();
     let playCurrent = null;
     // 搜歌 / 搜用户 / 搜歌单
@@ -1659,58 +1661,91 @@
         detailBack = { list: lastResults, kind: listKind, page: page };
       }
       queueOpen = true;
-      if (!playQueue.length) {
-        elBody.innerHTML =
-          '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
-          '<div class="mk-sub">队列 0 首</div></div>' +
-          '<div class="mk-detail-acts"><button class="mk-btn" data-act="back">‹ 返回</button></div></div>' +
-          '<div class="mk-empty">队列还是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
-        if (elPager && elPager.classList) elPager.classList.remove('mk-on');
-        setStat('队列 0 首');
-        return;
+      // 打开队列页就顺手问一次服务器：房间队列 + 点歌人
+      if (typeof opts.onRefreshRoomQueue === 'function') {
+        try {
+          opts.onRefreshRoomQueue();
+        } catch (e) {
+          /* 房间可能还没连上，忽略 */
+        }
       }
+      const roomRows = roomQueue.length
+        ? roomQueue
+            .map((it, i) => {
+              const sub = [it.artist, it.requester ? '点歌：' + it.requester : '']
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                '<div class="mk-song' +
+                (i === 0 ? ' mk-playing' : '') +
+                '">' +
+                '<div class="mk-idx">' +
+                (i + 1) +
+                '</div>' +
+                coverOf(it.cover, '♪') +
+                '<div class="mk-meta"><div class="mk-name">' +
+                esc(it.title || '（无标题）') +
+                '</div><div class="mk-sub">' +
+                esc(sub) +
+                '</div></div>' +
+                '<div class="mk-acts"><span class="mk-tag">' +
+                esc(fmtDur((it.length || 0) * 1000)) +
+                '</span></div></div>'
+              );
+            })
+            .join('')
+        : '<div class="mk-empty">服务器没返回队列（房间可能没开点播，或还没刷新）。点上面「刷新」再试。</div>';
+      const roomSection =
+        '<div class="mk-sect">房间队列 · ' +
+        roomQueue.length +
+        ' 首（服务器）' +
+        '</div>' +
+        roomRows;
+      const localRows = playQueue.length
+        ? playQueue
+            .map((s, i) => {
+              const cur = i === playIndex;
+              const sub = [labelOf(s.platform), (s.artists || []).join(' / '), fmtDur(s.durationMs)]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                '<div class="mk-song' +
+                (cur ? ' mk-playing' : '') +
+                '">' +
+                '<button class="mk-play' +
+                (cur ? ' mk-busy' : '') +
+                '" data-act="qplay" data-i="' +
+                i +
+                '">' +
+                (cur ? '♪' : '▶') +
+                '</button>' +
+                '<div class="mk-idx">' +
+                (i + 1) +
+                '</div>' +
+                coverOf(s.cover, '♪') +
+                '<div class="mk-meta"><div class="mk-name">' +
+                esc(s.title) +
+                '</div><div class="mk-sub">' +
+                esc(sub) +
+                '</div></div>' +
+                '<div class="mk-acts"><button data-act="qdel" data-i="' +
+                i +
+                '" title="从本机队列移除">✕</button></div></div>'
+              );
+            })
+            .join('')
+        : '<div class="mk-empty">本机队列是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
       const head =
         '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
         '<div class="mk-sub">' +
-        esc(playQueue.length + ' 首 · 当前第 ' + (playIndex + 1) + ' 首') +
+        esc('房间 ' + roomQueue.length + ' 首 · 本机 ' + playQueue.length + ' 首') +
         '</div></div><div class="mk-detail-acts">' +
-        '<button class="mk-btn" data-act="queue-clear">清空</button>' +
+        '<button class="mk-btn mk-primary" data-act="queue-refresh">刷新</button>' +
+        '<button class="mk-btn" data-act="queue-clear">清空本机</button>' +
         '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
-      const rows = playQueue
-        .map((s, i) => {
-          const cur = i === playIndex;
-          const sub = [labelOf(s.platform), (s.artists || []).join(' / '), fmtDur(s.durationMs)]
-            .filter(Boolean)
-            .join(' · ');
-          return (
-            '<div class="mk-song' +
-            (cur ? ' mk-playing' : '') +
-            '">' +
-            '<button class="mk-play' +
-            (cur ? ' mk-busy' : '') +
-            '" data-act="qplay" data-i="' +
-            i +
-            '">' +
-            (cur ? '♪' : '▶') +
-            '</button>' +
-            '<div class="mk-idx">' +
-            (i + 1) +
-            '</div>' +
-            coverOf(s.cover, '♪') +
-            '<div class="mk-meta"><div class="mk-name">' +
-            esc(s.title) +
-            '</div><div class="mk-sub">' +
-            esc(sub) +
-            '</div></div>' +
-            '<div class="mk-acts"><button data-act="qdel" data-i="' +
-            i +
-            '" title="从队列移除">✕</button></div></div>'
-          );
-        })
-        .join('');
-      elBody.innerHTML = head + rows;
+      elBody.innerHTML = head + roomSection + '<div class="mk-sect">本机队列 · 试听 / 顺序播</div>' + localRows;
       if (elPager && elPager.classList) elPager.classList.remove('mk-on');
-      setStat('队列 ' + playQueue.length + ' 首');
+      setStat('房间 ' + roomQueue.length + ' 首 · 本机 ' + playQueue.length + ' 首');
     }
 
     // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
@@ -1997,7 +2032,9 @@
         else if (name === 'play-sel') playSelected();
         else if (name === 'sel-all') toggleSelectAll();
         else if (name === 'queue') renderQueue();
-        else if (name === 'queue-clear') {
+        else if (name === 'queue-refresh') {
+          renderQueue();
+        } else if (name === 'queue-clear') {
           playQueue = [];
           playIndex = -1;
           renderQueue();
@@ -2186,6 +2223,13 @@
       /** 宿主把「房间正在播放」推回面板（IIROSE 版监听 &1 帧后调用） */
       setRoomNow(text, sub) {
         setNow(text || '未在播放', sub || '');
+      },
+      /** 宿主动手把服务器返回的房间歌单塞进来（%a 回包解析后的数组） */
+      setRoomQueue(list) {
+        roomQueue = Array.isArray(list) ? list.slice() : [];
+        const btn = root.querySelector('[data-act=queue]');
+        if (btn) btn.textContent = roomQueue.length ? '队列 ' + roomQueue.length : '队列';
+        if (queueOpen) renderQueue();
       },
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),

@@ -309,6 +309,23 @@ const nowText = panelEl.querySelector('[data-el=now]').textContent;
 check('&1 事件把「房间正在播放」写回面板', nowText.includes('房间：晴天'), nowText);
 check('诊断里记下了当前曲', String(diag.roomNow || '').includes('晴天'), String(diag.roomNow));
 
+// 房间歌单回包（%a → a1 开头）：条数 / 歌名 / 歌手 / 点歌人
+window.socket.onmessage({
+  data: JSON.stringify({
+    m: 'a1180>晴天>@0周杰伦>小明>//i0.hdslb.com/bfs/a.jpg<201>七里香>@0周杰伦>小红>//i0.hdslb.com/bfs/b.jpg',
+  }),
+});
+await tick();
+check('房间歌单被解析成 2 首', diag.roomQueue === 2, String(diag.roomQueue));
+panelEl.querySelector('[data-act=queue]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+const qText = panelEl.querySelector('[data-el=body]').textContent;
+check('队列页显示房间队列条数', qText.includes('房间队列 · 2 首'), qText.slice(0, 40));
+check('队列页显示点歌人', qText.includes('点歌：小明') && qText.includes('点歌：小红'));
+// 回到搜索结果，后面的用例还要点结果里的 ▶
+panelEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+
 // ---------------- 6. 切到「仅本机试听」 ----------------
 panelEl.querySelector('[data-act=mode]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
@@ -498,11 +515,23 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
 // ---------------- 9.5 设置里关掉「发送点播卡片」：只发媒体帧 ----------------
 {
   window.localStorage.setItem('mk_panel_settings', JSON.stringify({ ball: true, gesture: true, card: false }));
-  const framesBeforeOff = sent.length;
+  // 只数「媒体帧 / 卡片」；%a（查询房间歌单）不算
+  const countFrames = () =>
+    sent.filter((x) => {
+      const s = String(x).trim();
+      return s.startsWith('&1') || s.startsWith('{');
+    }).length;
+  const framesBeforeOff = countFrames();
   panelEl.querySelector('[data-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await tick(80);
-  check('关掉卡片后只发 1 帧', sent.length === framesBeforeOff + 1, String(sent.length - framesBeforeOff));
-  check('关掉卡片时这一帧仍是媒体数据', String(sent[framesBeforeOff] || '').startsWith('&1{'));
+  check('关掉卡片后只发 1 帧', countFrames() === framesBeforeOff + 1, String(countFrames() - framesBeforeOff));
+  const lastFrame = sent
+    .filter((x) => {
+      const s = String(x).trim();
+      return s.startsWith('&1') || s.startsWith('{');
+    })
+    .slice(-1)[0];
+  check('关掉卡片时这一帧仍是媒体数据', String(lastFrame || '').startsWith('&1{'), String(lastFrame || '').slice(0, 12));
   window.localStorage.setItem('mk_panel_settings', JSON.stringify({ ball: true, gesture: true, card: true }));
 }
 
