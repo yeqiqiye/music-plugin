@@ -359,10 +359,10 @@ async function bilibiliSearch({ keyword, limit, page }) {
   }));
 }
 
-async function bilibiliPlayUrl(id, mode, env) {
+async function bilibiliPlayUrl(id, mode, env, opts) {
   const headers = biliHeaders(env);
   try {
-    return await bilibiliPlayUrlInner(id, mode, headers);
+    return await bilibiliPlayUrlInner(id, mode, headers, opts, env);
   } catch (err) {
     // 数据中心 IP 命中 B 站风控时，fetch 会直接抛（412 / 403 / 超时）。
     // 把原因说清楚，别让面板只显示「中转返回异常」。
@@ -378,7 +378,7 @@ async function bilibiliPlayUrl(id, mode, env) {
   }
 }
 
-async function bilibiliPlayUrlInner(id, mode, headers) {
+async function bilibiliPlayUrlInner(id, mode, headers, opts, env) {
   const view = await fetchJson(
     'https://api.bilibili.com/x/web-interface/view?bvid=' + encodeURIComponent(id),
     headers,
@@ -386,6 +386,21 @@ async function bilibiliPlayUrlInner(id, mode, headers) {
   const cid = view?.data?.cid;
   if (!cid) return { playable: false, reason: 'no-cid', note: '取不到该视频的 cid' };
   const dur = Number(view?.data?.duration) || null;
+
+  // 1080P：B 站只在 DASH 里给，得先用 FFmpeg 合成 mp4（仅云函数 + FFmpeg 层支持）
+  if (mode === 'video' && opts && opts.quality === '1080' && canMux()) {
+    return {
+      playable: true,
+      mode: 'video',
+      streamUrl: '/stream/hd-' + encodeURIComponent(id) + '.mp4?platform=bilibili&id=' + encodeURIComponent(id) + '&q=1080&mode=video',
+      source: 'mux',
+      ext: 'mp4',
+      qn: 80,
+      size: null,
+      durationSec: dur,
+      note: '1080P 由中转合流，首播会多等几秒',
+    };
+  }
 
   // 视频：先用 bilibilix 这类「302 直链」站点——它会把 /video/BVxxx 重定向到 B 站 CDN 的 mp4，
   // 而且这个地址是**客户端自己**去拿的（IIROSE 播得出来），不经过我们中转、不吃出口 IP。
@@ -573,6 +588,117 @@ async function proxyAudio(request, target, platform, env, mode) {
   return new Response(upstream.body, { status: upstream.status, headers });
 }
 
+// ------------------------------------------------- 1080P：DASH → mp4 合流
+// B 站 1080P 只在 DASH（音视频两条 m4s）里，播放器要一个 mp4，所以用 FFmpeg 层 `-c copy` 合流。
+// 只在阿里云 FC（有 /opt/bin/ffmpeg）上启用；Cloudflare 上直接回退 720P。
+
+// 只有挂了 FFmpeg 层的云函数才能合流；Cloudflare 上直接回退 720P。
+function canMux() {
+  if (typeof process === 'undefined' || !process.env) return false;
+  if (process.env.MUX_ENABLED === '0') return false;
+  return Boolean(process.env.FC_FUNCTION_NAME || process.env.FC_REGION || process.env.MUX_ENABLED === '1');
+}
+
+/** 把 URL 下载到本地文件（流式，避免整块进内存） */
+async function downloadTo(url, path, headers) {
+  const fs = await import('node:fs');
+  const { Readable } = await import('node:stream');
+  const { pipeline } = await import('node:stream/promises');
+  const res = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(60000) });
+  if (!res.ok) throw new Error('下载失败 HTTP ' + res.status);
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(path));
+}
+
+/** 取 B 站 DASH 的音/视频地址（1080P 优先，带 Cookie 才可能拿到 1080P+） */
+async function bilibiliDash(id, env) {
+  const headers = biliHeaders(env);
+  const view = await fetchJson('https://api.bilibili.com/x/web-interface/view?bvid=' + encodeURIComponent(id), headers);
+  const cid = view?.data?.cid;
+  if (!cid) throw new Error('拿不到 cid');
+  const pj = await fetchJson(
+    `https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(id)}&cid=${cid}` +
+      '&fnval=16&qn=80&fourk=1&platform=pc',
+    headers,
+  );
+  const dash = pj?.data?.dash;
+  if (!dash || !dash.video || !dash.video.length) throw new Error('B 站没给 DASH 流');
+  const vids = dash.video.filter((v) => Number(v.id) <= 80).sort((a, b) => Number(b.id) - Number(a.id));
+  const v = vids[0] || dash.video[0];
+  const auds = (dash.audio || []).slice().sort((a, b) => Number(b.id) - Number(a.id));
+  const a = auds[0];
+  if (!v || !a) throw new Error('DASH 流不完整');
+  return { video: v, audio: a, duration: pj?.data?.timelength ? pj.data.timelength / 1000 : 0, cid };
+}
+
+/** 合流并返回 /tmp 里的 mp4 路径（同实例里复用，第二次起秒开） */
+async function muxBilibiliHd(id, env) {
+  const fs = await import('node:fs');
+  const out = '/tmp/hd-' + id + '.mp4';
+  try {
+    if (fs.existsSync(out) && fs.statSync(out).size > 100000) return { path: out, cached: true };
+  } catch {
+    /* 忽略 */
+  }
+  const headers = biliHeaders(env);
+  const d = await bilibiliDash(id, env);
+  const vPath = '/tmp/hd-' + id + '.v.m4s';
+  const aPath = '/tmp/hd-' + id + '.a.m4s';
+  await downloadTo(d.video.baseUrl || d.video.base_url, vPath, headers);
+  await downloadTo(d.audio.baseUrl || d.audio.base_url, aPath, headers);
+
+  // 层里的 ffmpeg 是只读的，复制到 /tmp 再加执行位
+  const bin = '/tmp/ffmpeg';
+  if (!fs.existsSync(bin)) {
+    fs.copyFileSync('/opt/bin/ffmpeg', bin);
+    fs.chmodSync(bin, 0o755);
+  }
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync(
+    bin,
+    ['-y', '-i', vPath, '-i', aPath, '-c', 'copy', '-movflags', '+faststart', out],
+    { encoding: 'utf8', timeout: 110000 },
+  );
+  try {
+    fs.unlinkSync(vPath);
+    fs.unlinkSync(aPath);
+  } catch {
+    /* 忽略 */
+  }
+  if (r.status !== 0) throw new Error('ffmpeg 合流失败：' + String(r.stderr || '').slice(-180));
+  return { path: out, cached: false, height: d.video.height || null };
+}
+
+/** 从 /tmp 读文件并按 Range 返回（播放器会多次分段请求） */
+async function serveFile(request, path, ct) {
+  const fs = await import('node:fs');
+  const stat = fs.statSync(path);
+  const size = stat.size;
+  const range = request.headers.get('range') || '';
+  const headers = new Headers(CORS);
+  headers.set('content-type', ct || 'video/mp4');
+  headers.set('accept-ranges', 'bytes');
+  headers.set('cache-control', 'no-store');
+  const m = /bytes=(\d*)-(\d*)/.exec(range);
+  if (m) {
+    let start = m[1] ? parseInt(m[1], 10) : 0;
+    let end = m[2] ? parseInt(m[2], 10) : size - 1;
+    if (end >= size) end = size - 1;
+    if (start > end || start >= size) {
+      headers.set('content-range', 'bytes */' + size);
+      return new Response(null, { status: 416, headers });
+    }
+    const buf = Buffer.alloc(end - start + 1);
+    const fd = fs.openSync(path, 'r');
+    fs.readSync(fd, buf, 0, buf.length, start);
+    fs.closeSync(fd);
+    headers.set('content-range', `bytes ${start}-${end}/${size}`);
+    headers.set('content-length', String(buf.length));
+    return new Response(buf, { status: 206, headers });
+  }
+  headers.set('content-length', String(size));
+  return new Response(fs.readFileSync(path), { status: 200, headers });
+}
+
 // ------------------------------------------------------------------ 路由
 
 /** 播放地址缓存：地址本身带时效（约 20 分钟），缓存 5 分钟既省上游调用又不至于过期 */
@@ -659,7 +785,7 @@ const PLATFORMS = {
   bilibili: {
     search: bilibiliSearch,
     // 路由按 (id, env, mode) 调；B 站需要 env 里的 BILI_COOKIE
-    playurl: (id, env, mode) => bilibiliPlayUrl(id, mode, env),
+    playurl: (id, env, mode, opts) => bilibiliPlayUrl(id, mode, env, opts),
   },
   qq: { search: qqSearch, playurl: qqPlayUrl },
 };
@@ -675,7 +801,7 @@ export const worker = {
 
     try {
       // 先判路径再判平台：不然后面「不支持的平台」会把未知路径也说成 400
-      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream'];
+      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream', '/ffmpeg'];
       // /stream/xxx.mp4 这种带后缀的流地址也要放行（IIROSE 靠扩展名挑播放器）
       if (!KNOWN_PATHS.includes(url.pathname) && !url.pathname.startsWith('/stream/')) {
         return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
@@ -695,6 +821,38 @@ export const worker = {
             '/stream?platform=bilibili&url=..',
           ],
         });
+      }
+
+      // 诊断：确认 FFmpeg 层能用（层挂在 /opt，只读；复制到 /tmp 再加执行位）
+      if (url.pathname === '/ffmpeg') {
+        try {
+          const fs = await import('node:fs');
+          const { spawnSync } = await import('node:child_process');
+          const bin = '/tmp/ffmpeg';
+          if (!fs.existsSync(bin)) {
+            fs.copyFileSync('/opt/bin/ffmpeg', bin);
+            fs.chmodSync(bin, 0o755);
+          }
+          const r2 = spawnSync(bin, ['-version'], { encoding: 'utf8', timeout: 20000 });
+          return json({
+            ok: r2.status === 0,
+            status: r2.status,
+            first: String(r2.stdout || '').split('\n')[0],
+            err: String(r2.stderr || '').slice(0, 200),
+          });
+        } catch (e) {
+          let listing = '';
+          try {
+            const fs2 = await import('node:fs');
+            listing = JSON.stringify({
+              opt: fs2.existsSync('/opt') ? fs2.readdirSync('/opt') : null,
+              optBin: fs2.existsSync('/opt/bin') ? fs2.readdirSync('/opt/bin') : null,
+            });
+          } catch (e2) {
+            listing = 'list fail: ' + String((e2 && e2.message) || e2);
+          }
+          return json({ ok: false, note: String((e && e.message) || e), listing }, 500);
+        }
       }
 
       if (url.pathname === '/health') {
@@ -753,6 +911,17 @@ export const worker = {
 
       // 音频/视频中转：只放行白名单域名（见 AUDIO_HOSTS），并补上 CDN 要的 Referer/Cookie
       if (url.pathname === '/stream' || url.pathname.startsWith('/stream/')) {
+        // 1080P 合流：/stream/hd-<id>.mp4?q=1080 → 用 FFmpeg 现合现发（同实例缓存到 /tmp）
+        if (platform === 'bilibili' && (p.get('q') === '1080' || url.pathname.indexOf('/hd-') >= 0)) {
+          const hid = (p.get('id') || '').trim();
+          if (!hid) return json({ ok: false, error: '缺少 id' }, 400);
+          try {
+            const built = await muxBilibiliHd(hid, env);
+            return await serveFile(request, built.path, 'video/mp4');
+          } catch (e) {
+            return json({ ok: false, error: '合流失败：' + String((e && e.message) || e).slice(0, 200) }, 502);
+          }
+        }
         const target = p.get('url') || '';
         if (target) {
           return await proxyAudio(
@@ -814,7 +983,8 @@ export const worker = {
           return json({ ok: true, data: hit.value, cached: true });
         }
 
-        const data = await impl.playurl(id, env, mode);
+        const quality = p.get('quality') === '1080' ? '1080' : '720';
+        const data = await impl.playurl(id, env, mode, { quality });
 
         // 酷狗从 Cloudflare 出口很容易被限流，给一条能照着做的提示
         if (data && data.playable === false && /频繁|too\s*frequent/i.test(String(data.note || ''))) {
@@ -834,7 +1004,8 @@ export const worker = {
           data.playable &&
           data.streamUrl &&
           data.source !== 'bilibilix' &&
-          data.source !== 'html5'
+          data.source !== 'html5' &&
+          data.source !== 'mux'
         ) {
           if (request.headers.get('x-mr-binary') === '0') {
             data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
@@ -853,6 +1024,10 @@ export const worker = {
               '&mode=' +
               mode;
           }
+        }
+        // 合流地址是相对路径（/stream/hd-…），补成绝对地址给客户端
+        if (data && typeof data.streamUrl === 'string' && data.streamUrl.charAt(0) === '/') {
+          data.streamUrl = url.origin + data.streamUrl;
         }
         return json({ ok: true, data });
       }

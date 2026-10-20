@@ -412,7 +412,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, bili: 'video', bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       opacity: 1, clock: true,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
@@ -439,6 +439,7 @@
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
+      out.quality = out.quality === '1080' ? '1080' : '720';
       out.clock = out.clock !== false;
       const alpha = Number(out.opacity);
       // 0.55 是能看清字的下限；1 = 完全不透明
@@ -734,6 +735,11 @@
         chip('bili', 'video', '视频') +
         chip('bili', 'link', '外链') +
         chip('bili', 'native', '原生') +
+        '</div>' +
+        '<div class="mk-set-row"><div class="mk-meta"><b>B 站画质</b><small>1080P 需要中转用 FFmpeg 合流：首播多等几秒，流量约翻倍</small></div></div>' +
+        '<div class="mk-chips">' +
+        chip('quality', '720', '720P') +
+        chip('quality', '1080', '1080P') +
         '</div>' +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
@@ -1151,7 +1157,7 @@
         refreshRows();
         try {
           if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video' });
+          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video', quality: settings.quality });
           if (!info || !info.playable || !info.streamUrl) {
             throw new Error((info && info.note) || '拿不到视频地址');
           }
@@ -1185,7 +1191,7 @@
       refreshRows();
       try {
         if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs });
+        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs, quality: settings.quality });
         if (!info || !info.playable) {
           const why = (info && info.note) || (info && info.reason) || '拿不到可播放地址';
           setNow(label, '⚠ ' + why + '（可用「打开」跳去平台）');

@@ -336,11 +336,12 @@
     var platform = (opts && opts.platform) || 'netease';
     var id = String((opts && opts.id) || '');
     var mode = (opts && opts.mode) === 'video' ? 'video' : 'audio';
+    var quality = (opts && opts.quality) === '1080' ? '1080' : '720';
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      return request('/playurl', { platform: platform, id: id, mode: mode }, base).then(function (out) {
+      return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality }, base).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
         // 中转（没配 Cookie）拿不到 VIP 曲时，网易云再问一次公共接口，能拿到就拿到
