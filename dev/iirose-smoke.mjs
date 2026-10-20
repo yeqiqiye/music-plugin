@@ -309,19 +309,19 @@ const nowText = panelEl.querySelector('[data-el=now]').textContent;
 check('&1 事件把「房间正在播放」写回面板', nowText.includes('房间：晴天'), nowText);
 check('诊断里记下了当前曲', String(diag.roomNow || '').includes('晴天'), String(diag.roomNow));
 
-// 房间歌单回包（%a → a1 开头）：条数 / 歌名 / 歌手 / 点歌人
-window.socket.onmessage({
-  data: JSON.stringify({
-    m: 'a1180>晴天>@0周杰伦>小明>//i0.hdslb.com/bfs/a.jpg<201>七里香>@0周杰伦>小红>//i0.hdslb.com/bfs/b.jpg',
-  }),
-});
+// 点歌历史：刚点过一首，历史页应该能看到，并且落在 localStorage
+const histRaw = window.localStorage.getItem('mk_history');
+let histArr = [];
+try {
+  histArr = JSON.parse(histRaw || '[]');
+} catch (e) {
+  histArr = [];
+}
+check('点歌后写入了本机历史', histArr.length >= 1 && String(histArr[0].title || '').length > 0, String(histRaw).slice(0, 60));
+panelEl.querySelector('[data-act=history]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
-check('房间歌单被解析成 2 首', diag.roomQueue === 2, String(diag.roomQueue));
-panelEl.querySelector('[data-act=queue]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-await tick();
-const qText = panelEl.querySelector('[data-el=body]').textContent;
-check('队列页显示房间队列条数', qText.includes('房间队列 · 2 首'), qText.slice(0, 40));
-check('队列页显示点歌人', qText.includes('点歌：小明') && qText.includes('点歌：小红'));
+const hText = panelEl.querySelector('[data-el=body]').textContent;
+check('历史页渲染出条目', /点歌历史/.test(hText) && hText.includes(histArr[0].title), hText.slice(0, 60));
 // 回到搜索结果，后面的用例还要点结果里的 ▶
 panelEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();

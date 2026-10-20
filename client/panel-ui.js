@@ -302,6 +302,7 @@
           <span class="mk-clock" data-el="clock" hidden></span>
           <div class="mk-right">
             <button class="mk-btn mk-ghost" data-act="queue" title="听歌列表（队列）">队列</button>
+            <button class="mk-btn mk-ghost" data-act="history" title="我点过的歌（存在本机）">历史</button>
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>
@@ -404,8 +405,6 @@
     const biliFilters = { order: 'totalrank', duration: '0', days: '0', author: '' };
     let inPlaylist = false;
     let queueOpen = false;
-    // 房间歌单（服务器 %a 的回包），条目带 requester = 谁点的
-    let roomQueue = [];
     const selected = new Set();
     let playCurrent = null;
     // 搜歌 / 搜用户 / 搜歌单
@@ -1224,6 +1223,7 @@
           await opts.onExternalRequest(song, info);
           setNow(label, '已发外链点播 · 等 IIROSE 解析出画面');
           setStat('已发外链点播：' + esc(song.title));
+          markPlayed(song, 'link');
           return { played: true, mode: 'link' };
         } catch (err) {
           setNow(label, '外链点播失败：' + String((err && err.message) || err));
@@ -1240,6 +1240,7 @@
           await opts.onNativeRequest(song);
           setNow(label, '已发给 IIROSE 原生点播 · 等房间解析');
           setStat('已发送原生点播：' + esc(song.title));
+          markPlayed(song, 'native');
           return { played: true, mode: 'native' };
         } catch (err) {
           setNow(label, '原生点播失败：' + String((err && err.message) || err));
@@ -1264,6 +1265,7 @@
           setNow(label, '已点播到房间（' + (info.mode === 'video' ? '视频' : '音频') + '）· 等房间开始播');
           setPlayIcon(true);
           setStat('已点播：' + esc(song.title));
+          markPlayed(song, 'room');
           return { played: true, mode: 'room' };
         }
         elAudio.src = info.streamUrl;
@@ -1272,6 +1274,7 @@
         setNow(label, '播放中 · ' + (info.ext || 'audio') + (info.bitrate ? ' · ' + Math.round(info.bitrate / 1000) + 'k' : ''));
         setPlayIcon(true);
         setStat('正在播放：' + esc(song.title));
+        markPlayed(song, 'local');
         return { played: true };
       } catch (err) {
         const msg = String((err && err.message) || err);
@@ -1654,6 +1657,105 @@
       renderQueue();
     }
 
+    // ---------------------------------------------------------------- 点歌历史
+    // 存在本机（localStorage），不联网、不上传：只记「我点过什么」。
+    const HIST_KEY = 'mk_history';
+    const HIST_MAX = 300;
+
+    function loadHistory() {
+      try {
+        const raw = window.localStorage.getItem(HIST_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr.filter((x) => x && x.id && x.title) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function saveHistory() {
+      try {
+        window.localStorage.setItem(HIST_KEY, JSON.stringify(history.slice(0, HIST_MAX)));
+      } catch (e) {
+        /* 配额满了就只留内存里的 */
+      }
+    }
+
+    let history = loadHistory();
+
+    /** 记录一次真实发生的点歌（播放失败不会进来） */
+    function markPlayed(song, mode) {
+      if (!song || !song.id) return;
+      history = history.filter((h) => !(h.platform === song.platform && h.id === song.id && Date.now() - h.t < 1500));
+      history.unshift({
+        t: Date.now(),
+        platform: song.platform,
+        id: song.id,
+        title: song.title,
+        artists: song.artists || [],
+        durationMs: song.durationMs || null,
+        cover: song.cover || '',
+        mode: mode || 'room',
+      });
+      if (history.length > HIST_MAX) history = history.slice(0, HIST_MAX);
+      saveHistory();
+      const btn = root.querySelector('[data-act=history]');
+      if (btn) btn.textContent = '历史 ' + history.length;
+    }
+
+    function fmtWhen(ts) {
+      const d = new Date(ts);
+      const p2 = (n) => String(n).padStart(2, '0');
+      return p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+    }
+
+    const MODE_LABEL = { room: '点播到房间', local: '本机试听', link: '外链', native: '原生' };
+
+    /** 历史页：按时间倒序，可重播 / 删除；再给一个「总共点过多少首」的小统计 */
+    function renderHistory() {
+      if (!detailBack) {
+        detailBack = { list: lastResults, kind: listKind, page: page };
+      }
+      const weekAgo = Date.now() - 7 * 86400000;
+      const weekCount = history.filter((h) => h.t >= weekAgo).length;
+      const rows = history.length
+        ? history
+            .map((h, i) => {
+              const sub = [fmtWhen(h.t), MODE_LABEL[h.mode] || '', (h.artists || []).join(' / ')]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                '<div class="mk-song">' +
+                '<button class="mk-play" data-act="hist-play" data-i="' +
+                i +
+                '" title="再点一次">▶</button>' +
+                '<div class="mk-idx">' +
+                (i + 1) +
+                '</div>' +
+                coverOf(h.cover, '♪') +
+                '<div class="mk-meta"><div class="mk-name">' +
+                esc(h.title) +
+                '</div><div class="mk-sub">' +
+                esc(sub) +
+                '</div></div>' +
+                '<div class="mk-acts"><button data-act="hist-del" data-i="' +
+                i +
+                '" title="从历史里删掉">✕</button></div></div>'
+              );
+            })
+            .join('')
+        : '<div class="mk-empty">还没有点歌记录。点过一次之后就会记在这里（只存在本机）。</div>';
+      const head =
+        '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">点歌历史</div>' +
+        '<div class="mk-sub">' +
+        esc('共 ' + history.length + ' 次 · 最近 7 天 ' + weekCount + ' 次 · 只存本机') +
+        '</div></div><div class="mk-detail-acts">' +
+        (history.length ? '<button class="mk-btn" data-act="hist-clear">清空</button>' : '') +
+        '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+      elBody.innerHTML = head + rows;
+      if (elPager && elPager.classList) elPager.classList.remove('mk-on');
+      setStat('历史 ' + history.length + ' 次');
+    }
+
     /** 听歌列表：本机试听 / 点播到房间都用这一份队列 */
     function renderQueue() {
       // 已经有「返回上一级」就沿用它（比如从歌单详情点开队列，返回要回到歌单列表）
@@ -1661,47 +1763,7 @@
         detailBack = { list: lastResults, kind: listKind, page: page };
       }
       queueOpen = true;
-      // 打开队列页就顺手问一次服务器：房间队列 + 点歌人
-      if (typeof opts.onRefreshRoomQueue === 'function') {
-        try {
-          opts.onRefreshRoomQueue();
-        } catch (e) {
-          /* 房间可能还没连上，忽略 */
-        }
-      }
-      const roomRows = roomQueue.length
-        ? roomQueue
-            .map((it, i) => {
-              const sub = [it.artist, it.requester ? '点歌：' + it.requester : '']
-                .filter(Boolean)
-                .join(' · ');
-              return (
-                '<div class="mk-song' +
-                (i === 0 ? ' mk-playing' : '') +
-                '">' +
-                '<div class="mk-idx">' +
-                (i + 1) +
-                '</div>' +
-                coverOf(it.cover, '♪') +
-                '<div class="mk-meta"><div class="mk-name">' +
-                esc(it.title || '（无标题）') +
-                '</div><div class="mk-sub">' +
-                esc(sub) +
-                '</div></div>' +
-                '<div class="mk-acts"><span class="mk-tag">' +
-                esc(fmtDur((it.length || 0) * 1000)) +
-                '</span></div></div>'
-              );
-            })
-            .join('')
-        : '<div class="mk-empty">服务器没返回队列（房间可能没开点播，或还没刷新）。点上面「刷新」再试。</div>';
-      const roomSection =
-        '<div class="mk-sect">房间队列 · ' +
-        roomQueue.length +
-        ' 首（服务器）' +
-        '</div>' +
-        roomRows;
-      const localRows = playQueue.length
+      const rows = playQueue.length
         ? playQueue
             .map((s, i) => {
               const cur = i === playIndex;
@@ -1730,22 +1792,21 @@
                 '</div></div>' +
                 '<div class="mk-acts"><button data-act="qdel" data-i="' +
                 i +
-                '" title="从本机队列移除">✕</button></div></div>'
+                '" title="从队列移除">✕</button></div></div>'
               );
             })
             .join('')
-        : '<div class="mk-empty">本机队列是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
+        : '<div class="mk-empty">队列是空的。点结果里的「+ 队列」，或去歌单里「全部点歌」。</div>';
       const head =
         '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">听歌列表</div>' +
         '<div class="mk-sub">' +
-        esc('房间 ' + roomQueue.length + ' 首 · 本机 ' + playQueue.length + ' 首') +
+        esc(playQueue.length + ' 首 · 当前第 ' + (playIndex + 1) + ' 首') +
         '</div></div><div class="mk-detail-acts">' +
-        '<button class="mk-btn mk-primary" data-act="queue-refresh">刷新</button>' +
-        '<button class="mk-btn" data-act="queue-clear">清空本机</button>' +
+        '<button class="mk-btn" data-act="queue-clear">清空</button>' +
         '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
-      elBody.innerHTML = head + roomSection + '<div class="mk-sect">本机队列 · 试听 / 顺序播</div>' + localRows;
+      elBody.innerHTML = head + rows;
       if (elPager && elPager.classList) elPager.classList.remove('mk-on');
-      setStat('房间 ' + roomQueue.length + ' 首 · 本机 ' + playQueue.length + ' 首');
+      setStat('队列 ' + playQueue.length + ' 首');
     }
 
     // 顶栏「登录 / 已登录」按钮跟着 session 走：登录、退出、刷新会话都要过这里，
@@ -2032,9 +2093,24 @@
         else if (name === 'play-sel') playSelected();
         else if (name === 'sel-all') toggleSelectAll();
         else if (name === 'queue') renderQueue();
-        else if (name === 'queue-refresh') {
-          renderQueue();
-        } else if (name === 'queue-clear') {
+        else if (name === 'history') renderHistory();
+        else if (name === 'hist-clear') {
+          history = [];
+          saveHistory();
+          renderHistory();
+          setStat('已清空点歌历史');
+        } else if (name === 'hist-del') {
+          const hi = Number(act.getAttribute('data-i'));
+          if (hi >= 0 && hi < history.length) {
+            history.splice(hi, 1);
+            saveHistory();
+            renderHistory();
+          }
+        } else if (name === 'hist-play') {
+          const hp = history[Number(act.getAttribute('data-i'))];
+          if (hp) playSong(hp, { enqueue: false });
+        }
+        else if (name === 'queue-clear') {
           playQueue = [];
           playIndex = -1;
           renderQueue();
@@ -2223,13 +2299,6 @@
       /** 宿主把「房间正在播放」推回面板（IIROSE 版监听 &1 帧后调用） */
       setRoomNow(text, sub) {
         setNow(text || '未在播放', sub || '');
-      },
-      /** 宿主动手把服务器返回的房间歌单塞进来（%a 回包解析后的数组） */
-      setRoomQueue(list) {
-        roomQueue = Array.isArray(list) ? list.slice() : [];
-        const btn = root.querySelector('[data-act=queue]');
-        if (btn) btn.textContent = roomQueue.length ? '队列 ' + roomQueue.length : '队列';
-        if (queueOpen) renderQueue();
       },
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
