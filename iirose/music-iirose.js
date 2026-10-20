@@ -1,4 +1,4 @@
-/*! music-iirose v1.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v1.3.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -91,6 +91,9 @@
 .mk-clock{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--mk-dim);padding:3px 9px;
   border:1px solid var(--mk-line);border-radius:8px;letter-spacing:.5px}
 .mk-clock[hidden]{display:none}
+.mk-bili{display:none;padding:0 16px 8px;gap:6px;flex-wrap:wrap;align-items:center}
+.mk-bili.mk-on{display:flex}
+.mk-bili .mk-bf-input{flex:1 1 120px;min-width:110px}
 .mk-sel{width:15px;height:15px;accent-color:var(--mk-accent);margin:0 4px 0 0;flex:none;cursor:pointer}
 .mk-range{width:100%;margin:8px 0 2px;accent-color:var(--mk-accent)}
 .mk-badge{font-size:12px;color:var(--mk-accent);font-variant-numeric:tabular-nums;font-weight:600}
@@ -312,6 +315,7 @@
         </div>
         <div class="mk-tabs" data-el="tabs"></div>
         <div class="mk-scopes" data-el="scopes"></div>
+        <div class="mk-bili" data-el="bili"></div>
         <div class="mk-body" data-el="body"></div>
         <div class="mk-pager" data-el="pager"></div>
         <div class="mk-player">
@@ -364,6 +368,7 @@
     const elPager = $('[data-el=pager]') || stub();
     const elTabs = $('[data-el=tabs]') || stub();
     const elScopes = $('[data-el=scopes]') || null;
+    const elBili = $('[data-el=bili]') || null;
     const elKw = $('[data-el=kw]') || stub();
     const elStat = $('[data-el=stat]') || stub();
     const elLoginBtn = $('[data-act=login]') || stub();
@@ -396,6 +401,8 @@
     let playQueue = [];
     let playIndex = -1;
     // 歌单详情里才有勾选；selected 存 songKey，切换列表时清空
+    // B 站筛选项（排序 / 时长 / 发布时间 / 只看某 UP 主），只对 B 站 tab 生效
+    const biliFilters = { order: 'totalrank', duration: '0', days: '0', author: '' };
     let inPlaylist = false;
     let queueOpen = false;
     const selected = new Set();
@@ -992,6 +999,53 @@
         .join('');
     }
 
+    /** B 站专属筛选：排序 / 时长 / 发布时间 / 只看某个 UP 主（和 B 站网页同一套参数） */
+    function renderBiliFilters() {
+      if (!elBili) return;
+      const on = current === 'bilibili' && (scope === 'song' || !scopes);
+      if (!on) {
+        elBili.classList.remove('mk-on');
+        elBili.innerHTML = '';
+        return;
+      }
+      const chips = (group, list) =>
+        list
+          .map(
+            ([v, label]) =>
+              `<button class="mk-chip${String(biliFilters[group]) === v ? ' mk-on' : ''}" data-bf="${group}" data-bfv="${v}">${label}</button>`,
+          )
+          .join('');
+      elBili.innerHTML =
+        '<span class="mk-bf-label">排序</span>' +
+        chips('order', [
+          ['totalrank', '综合'],
+          ['click', '最多播放'],
+          ['pubdate', '最新发布'],
+          ['dm', '最多弹幕'],
+          ['stow', '最多收藏'],
+        ]) +
+        '<span class="mk-bf-label">时长</span>' +
+        chips('duration', [
+          ['0', '全部'],
+          ['1', '&lt;10 分'],
+          ['2', '10-30 分'],
+          ['3', '30-60 分'],
+          ['4', '&gt;60 分'],
+        ]) +
+        '<span class="mk-bf-label">发布</span>' +
+        chips('days', [
+          ['0', '全部'],
+          ['1', '一天'],
+          ['7', '一周'],
+          ['180', '半年'],
+        ]) +
+        '<input class="mk-input mk-bf-input" data-el="bf-author" type="search" placeholder="只看 UP 主（如 JLRS，可留空）" value="' +
+        esc(biliFilters.author) +
+        '">' +
+        '<button class="mk-btn" data-act="bf-apply">应用</button>';
+      elBili.classList.add('mk-on');
+    }
+
     const coverOf = (src, ph) =>
       src
         ? `<img class="mk-cover" src="${esc(src)}" alt="" loading="lazy">`
@@ -1382,7 +1436,16 @@
       setStat('<span class="mk-load"></span> 正在搜' + esc(scopeLabel()) + ' · ' + esc(labelOf(current)) + (target > 1 ? ' · 第 ' + target + ' 页' : ''));
       elBody.innerHTML = '<div class="mk-empty">搜索中…</div>';
       try {
-        const data = await api.search({ platform: current, keyword: kw, limit, page: target, type });
+        const extra =
+          current === 'bilibili' && type === 'song'
+            ? {
+                order: biliFilters.order,
+                duration: biliFilters.duration,
+                days: biliFilters.days,
+                author: biliFilters.author,
+              }
+            : {};
+        const data = await api.search(Object.assign({ platform: current, keyword: kw, limit, page: target, type }, extra));
         const list = data || [];
         if (!list.length) {
           if (target > 1) {
@@ -1395,7 +1458,11 @@
             listKind = type;
             page = 1;
             lastLimit = limit;
-            elBody.innerHTML = '<div class="mk-empty">没有结果。换个关键词，或换一个平台试试。</div>';
+            const tip =
+              current === 'bilibili' && biliFilters.author
+                ? '没找到这个 UP 主的视频：试试把名字加进关键词，或清空「只看 UP 主」再搜。'
+                : '没有结果。换个关键词，或换一个平台试试。';
+            elBody.innerHTML = '<div class="mk-empty">' + tip + '</div>';
             setStat('0 条 · ' + esc(labelOf(current)));
             renderPager();
           }
@@ -1776,6 +1843,13 @@
     });
 
     root.addEventListener('click', async (ev) => {
+      const bf = ev.target.closest('[data-bf]');
+      if (bf) {
+        biliFilters[bf.getAttribute('data-bf')] = bf.getAttribute('data-bfv');
+        renderBiliFilters();
+        doSearch(1);
+        return;
+      }
       const tab = ev.target.closest('[data-tab]');
       if (tab) {
         current = tab.dataset.tab;
@@ -1836,6 +1910,8 @@
       if (scopeBtn) {
         scope = scopeBtn.dataset.scope || 'song';
         renderScopes();
+    renderBiliFilters();
+      renderBiliFilters();
         if (elKw && elKw.placeholder !== undefined) elKw.placeholder = placeholderOf();
         if (elKw.value.trim()) doSearch();
         else setStat('切到「' + scopeLabel() + '」，输入关键词搜索');
@@ -1913,7 +1989,11 @@
             setStat('等待搜索');
           }
         }
-        else if (name === 'batch') queueAll(lastResults);
+        else if (name === 'bf-apply') {
+          const inp = elBili ? elBili.querySelector('[data-el=bf-author]') : null;
+          biliFilters.author = inp ? String(inp.value || '').trim() : '';
+          doSearch(1);
+        } else if (name === 'batch') queueAll(lastResults);
         else if (name === 'batch-play') playAll(lastResults);
         else if (name === 'play-sel') playSelected();
         else if (name === 'sel-all') toggleSelectAll();
@@ -2029,6 +2109,8 @@
       applySettings();
       renderTabs();
       renderScopes();
+    renderBiliFilters();
+      renderBiliFilters();
       if (elKw && elKw.placeholder !== undefined) elKw.placeholder = placeholderOf();
       if (!elBody.childElementCount) {
         elBody.innerHTML =
@@ -2137,7 +2219,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '1.2.0';
+  var VERSION = '1.3.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';
@@ -2422,7 +2504,15 @@
       return shadowseeSearch(keyword, limit, page);
     }
 
-    return request('/search', { platform: platform, kw: keyword, limit: limit, page: page }, base).then(function (out) {
+    var extra = {};
+    if (platform === 'bilibili') {
+      // 面板上的 B 站筛选项：排序 / 时长 / 发布时间 / 只看某 UP 主
+      if (opts.order) extra.order = opts.order;
+      if (opts.duration) extra.duration = opts.duration;
+      if (opts.days) extra.days = opts.days;
+      if (opts.author) extra.author = opts.author;
+    }
+    return request('/search', Object.assign({ platform: platform, kw: keyword, limit: limit, page: page }, extra), base).then(function (out) {
       if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
       return out.data || [];
     }).catch(function (err) {

@@ -329,16 +329,25 @@ function biliHeaders(env) {
   return cookie ? Object.assign({}, BILI_HEADERS, { cookie: String(cookie) }) : BILI_HEADERS;
 }
 
-async function bilibiliSearch({ keyword, limit, page }) {
-  const url =
-    'https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=' +
-    encodeURIComponent(keyword) +
-    '&page=' +
-    page +
-    '&page_size=' +
-    limit;
-  const data = await fetchJson(url, BILI_HEADERS);
-  const list = data?.data?.result ?? [];
+async function bilibiliSearch({ keyword, limit, page, order, duration, days, author }) {
+  const qs = new URLSearchParams({
+    search_type: 'video',
+    keyword: keyword,
+    page: String(page),
+    page_size: String(limit),
+  });
+  // 和 B 站网页一致的筛选项：排序 / 时长 / 发布日期
+  if (order && order !== 'totalrank') qs.set('order', order);
+  if (duration && duration !== '0') qs.set('duration', String(duration));
+  if (days && Number(days) > 0) {
+    qs.set('pubtime_begin_s', String(Math.floor(Date.now() / 1000 - Number(days) * 86400)));
+    qs.set('pubtime_end_s', String(Math.floor(Date.now() / 1000)));
+  }
+  const data = await fetchJson('https://api.bilibili.com/x/web-interface/search/type?' + qs.toString(), BILI_HEADERS);
+  let list = data?.data?.result ?? [];
+  // 「只看这个 UP 主」：B 站搜索没有作者过滤参数，拿回来按作者名筛一遍
+  const onlyAuthor = String(author || '').trim();
+  if (onlyAuthor) list = list.filter((v) => String(v.author || '').includes(onlyAuthor));
   const strip = (html) => String(html ?? '').replace(/<[^>]*>/g, '');
   const toMs = (v) => {
     if (typeof v === 'number') return v * 1000;
@@ -886,7 +895,22 @@ export const worker = {
           }
           return json({ ok: true, data: await impl.playlistSearch({ keyword, limit, page }, env), type: 'playlist' });
         }
-        return json({ ok: true, data: await impl.search({ keyword, limit, page }, env), type: 'song' });
+        return json({
+          ok: true,
+          data: await impl.search(
+            {
+              keyword,
+              limit,
+              page,
+              order: p.get('order') || '',
+              duration: p.get('duration') || '',
+              days: p.get('days') || '',
+              author: p.get('author') || '',
+            },
+            env,
+          ),
+          type: 'song',
+        });
       }
 
       // 歌单详情：一次拿到歌单信息 + 歌（面板用它做「批量入队」）

@@ -302,7 +302,15 @@
       return shadowseeSearch(keyword, limit, page);
     }
 
-    return request('/search', { platform: platform, kw: keyword, limit: limit, page: page }, base).then(function (out) {
+    var extra = {};
+    if (platform === 'bilibili') {
+      // 面板上的 B 站筛选项：排序 / 时长 / 发布时间 / 只看某 UP 主
+      if (opts.order) extra.order = opts.order;
+      if (opts.duration) extra.duration = opts.duration;
+      if (opts.days) extra.days = opts.days;
+      if (opts.author) extra.author = opts.author;
+    }
+    return request('/search', Object.assign({ platform: platform, kw: keyword, limit: limit, page: page }, extra), base).then(function (out) {
       if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
       return out.data || [];
     }).catch(function (err) {
