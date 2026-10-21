@@ -90,11 +90,14 @@ CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
 在 IIROSE 里：设置 →「引用 JS 脚本文件链接」→ 粘一行（多个脚本一行一个）：
 
 ```
-https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v0.2.0/iirose/music-iirose.js
+https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v1.8.0/iirose/music-iirose.js
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，
 搜歌点 ▶ —— 歌会进房间歌单，所有人都听得到。结果多的时候底部有「上一页 / 下一页」。
+
+「房间正在播放」会记在本机：**刷新页面（F5）还能接回来**，按服务器推来的真实时长**放完自动收尾**
+（播放信息和歌词窗一起收掉）；歌词是独立悬浮窗，可拖位置、可锁定、1 / 3 / 5 行、右下角拖宽度。
 
 想连**酷狗 / B 站**：这两个平台浏览器直连被 CORS/反爬挡住，需要一个只中转元数据的小服务。
 仓库里给了现成的 [`relay/worker.js`](relay/worker.js)（Cloudflare Worker，粘上去就能用），

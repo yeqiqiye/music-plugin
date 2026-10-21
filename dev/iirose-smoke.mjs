@@ -313,11 +313,27 @@ check('歌词面板显示原文', Boolean(lyrEl) && lyrEl.textContent.includes('
 check('外语歌词双行（译文）', Boolean(lyrEl) && lyrEl.textContent.includes('sunny line'));
 
 // ---------------- 5. 房间播放事件回填 ----------------
-window.socket.onmessage({ data: '&1{"s":"s://m1.mp3","d":3,"c":"","n":"晴天","r":"@0周杰伦","b":"@0","o":"","l":null}' });
+window.socket.onmessage({ data: '&1{"s":"s://m1.mp3","d":30,"c":"","n":"晴天","r":"@0周杰伦","b":"@0","o":"","l":null}' });
 await tick();
 const nowText = panelEl.querySelector('[data-el=now]').textContent;
 check('&1 事件把「房间正在播放」写回面板', nowText.includes('房间：晴天'), nowText);
 check('诊断里记下了当前曲', String(diag.roomNow || '').includes('晴天'), String(diag.roomNow));
+let nowRaw = null;
+try {
+  nowRaw = JSON.parse(window.localStorage.getItem('mk_room_now') || 'null');
+} catch (e) {
+  nowRaw = null;
+}
+check(
+  '房间播放状态落进 localStorage（刷新页面能接回来）',
+  Boolean(nowRaw) && nowRaw.title === '晴天' && nowRaw.durationMs === 30000 && Number(nowRaw.startedAt) > 0,
+  JSON.stringify(nowRaw).slice(0, 90),
+);
+check(
+  '真实开播帧到了就不再是「预判」（时间轴对齐）',
+  Boolean(nowRaw) && nowRaw.predicted === false,
+  String(nowRaw && nowRaw.predicted),
+);
 
 // 点歌历史：刚点过一首，历史页应该能看到，并且落在 localStorage
 const histRaw = window.localStorage.getItem('mk_history');
@@ -578,6 +594,94 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   check('换版后只有一个悬浮球', w3.document.querySelectorAll('.mk-iirose-ball').length === 1);
   check('新版本已接管', w3.__MUSIC_IIROSE__ !== oldPanel && w3.__MUSIC_IIROSE__.mounted === true);
   check('诊断里能看到注入次数 2', w3.__MUSIC_IIROSE__.instances === 2, String(w3.__MUSIC_IIROSE__.instances));
+}
+
+// ---------------- 11. 刷新接回房间播放 / 帧内 LRC / 放完自动收 ----------------
+{
+  const mkDom = () => {
+    const d = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+      url: 'https://iirose.com/',
+    });
+    d.window.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+    d.window.socket = { send() {}, onmessage: null };
+    d.window.uid = '1';
+    return d;
+  };
+
+  // A. 刷新时这首还在放：接回来 + 续上歌词（歌词直接用记录里的 LRC，不依赖中转）
+  const dA = mkDom();
+  dA.window.localStorage.setItem(
+    'mk_room_now',
+    JSON.stringify({
+      title: '夜曲',
+      sub: '周杰伦',
+      artists: ['周杰伦'],
+      startedAt: Date.now() - 30000,
+      durationMs: 250000,
+      platform: 'netease',
+      id: '2000000002',
+      lrc: '[00:00.00]夜曲 歌词\n[00:31.00]第二句',
+    }),
+  );
+  vm.runInContext(code, dA.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(50);
+  const nowA = dA.window.document.querySelector('[data-el=now]').textContent;
+  check('刷新后把「房间正在播放」接回来了', nowA.includes('房间：夜曲'), nowA);
+  check('接回来时带着剩余时间', /剩 \d+:\d{2}/.test(nowA), nowA);
+  const lyA = dA.window.document.querySelector('.mk-lyric-float');
+  check(
+    '记录里的 LRC 直接显示（不靠中转）',
+    Boolean(lyA) && lyA.classList.contains('mk-on') && lyA.textContent.includes('夜曲 歌词'),
+    lyA ? lyA.textContent.slice(0, 40) : 'no el',
+  );
+
+  // B. 早该放完了：进页面就丢掉，不留「幽灵正在播放」
+  const dB = mkDom();
+  dB.window.localStorage.setItem(
+    'mk_room_now',
+    JSON.stringify({ title: '过期歌', artists: [], startedAt: Date.now() - 300000, durationMs: 60000, platform: '', id: '', lrc: '' }),
+  );
+  vm.runInContext(code, dB.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(50);
+  check('过期记录不会显示成正在播放', !dB.window.document.querySelector('[data-el=now]').textContent.includes('过期歌'));
+  check('过期记录被清出 localStorage', dB.window.localStorage.getItem('mk_room_now') === null);
+
+  // C. 服务器广播的 `>` 分隔帧：带真实时长 + 整段 LRC
+  dA.window.socket.onmessage({
+    data:
+      '&1://m10.music.126.net/x.mp3#163=1439814454>s://music.163.com/#/song?id=1439814454>225.817333>我的悲伤是水做的>@0ChiliChill  &  洛天依Official>上学>2>://p2.music.126.net/c.jpg>http://r.iirose.com/a.jpg>>[00:00.000] 作词 : ChiliChill\n[00:05.000]晒干这一片蓝色',
+  });
+  await tick(60);
+  const nowC = dA.window.document.querySelector('[data-el=now]').textContent;
+  check('分隔符帧也认得出歌名', nowC.includes('房间：我的悲伤是水做的'), nowC);
+  check('分隔符帧带出剩余时间', /剩 \d+:\d{2}/.test(nowC), nowC);
+  let recC = null;
+  try {
+    recC = JSON.parse(dA.window.localStorage.getItem('mk_room_now') || 'null');
+  } catch (e) {
+    recC = null;
+  }
+  check('时长按秒存成毫秒（225.817333s）', Boolean(recC) && recC.durationMs === 225817, recC && String(recC.durationMs));
+  check(
+    '帧里的 LRC 直接拿去上屏',
+    Boolean(lyA) && lyA.textContent.includes('晒干这一片蓝色'),
+    lyA ? lyA.textContent.replace(/\s+/g, ' ').slice(0, 60) : 'no el',
+  );
+  check('顺带认出网易云 id', Boolean(recC) && recC.platform === 'netease' && recC.id === '1439814454', recC ? recC.platform + '/' + recC.id : '');
+
+  // D. 放完自动收：给一帧只有 1 秒的歌，等它自己收干净（1s 轮询 + 1.5s 余量）
+  dA.window.socket.onmessage({
+    data: '&1://m1.mp3>s://music.163.com/#/song?id=1>1>一秒就完>@0测试>上学>2>://c.jpg>http://a.jpg',
+  });
+  await tick(120);
+  check('短歌先正常显示', dA.window.document.querySelector('[data-el=now]').textContent.includes('一秒就完'));
+  await tick(3000);
+  const nowD = dA.window.document.querySelector('[data-el=now]').textContent;
+  check('放完自动收回「未在播放」', nowD.includes('未在播放'), nowD);
+  check('放完把歌词窗一起收掉', !lyA.classList.contains('mk-on'), lyA.className);
+  check('放完清掉 localStorage 里的记录', dA.window.localStorage.getItem('mk_room_now') === null);
 }
 
 console.log('');

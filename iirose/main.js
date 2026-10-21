@@ -524,15 +524,62 @@
     gestureOn: null,
   };
 
+  /**
+   * `&1` 有两种形态，统一归一化成 { n, r, d, s, o, b, lrc }：
+   *   1. 客户端发出去的那种 JSON：`&1{"s":…,"d":…,"n":…}`
+   *   2. 服务器广播的 `>` 分隔版（带时长，部分还带整段 LRC）：
+   *      `&1://m10…mp3>s://music.163.com/…#163=1439814454>225.817333>歌名>@0歌手>点歌人>2>封面>头像>>[00:00.000] 作词…`
+   * 形态 2 才是「房间真的开始放」的信号，也是刷新后能接回来的依据。
+   */
   function parseMediaFrame(data) {
     if (typeof data !== 'string') return null;
-    var i = data.indexOf('&1{');
-    if (i < 0) return null;
-    try {
-      return JSON.parse(data.slice(i + 2));
-    } catch (e) {
-      return null;
+    var at = data.indexOf('&1');
+    if (at < 0) return null;
+    var body = data.slice(at + 2);
+    if (body.charAt(0) === '{') {
+      try {
+        var j = JSON.parse(body);
+        return j && j.n ? j : null;
+      } catch (e) {
+        return null;
+      }
     }
+    var parts = body.split('>');
+    var di = -1;
+    for (var i = 0; i < Math.min(parts.length, 6); i += 1) {
+      if (/^\d+(\.\d+)?$/.test(parts[i])) {
+        di = i;
+        break;
+      }
+    }
+    if (di < 0 || !parts[di + 1]) return null;
+    var out = {
+      d: Number(parts[di]) || 0,
+      n: parts[di + 1] || '',
+      r: parts[di + 2] || '',
+      b: '',
+      s: parts[0] || '',
+      o: parts[di - 1] || '',
+      lrc: '',
+    };
+    // 歌词：从第一个 LRC 时间戳切起，前面的封面/头像段就不用管了
+    var lm = /\[\d{1,2}:\d{2}[.:]\d{1,3}\]/.exec(body);
+    if (lm) out.lrc = body.slice(lm.index).replace(/\\n/g, '\n');
+    return out;
+  }
+
+  /** 从帧里的链接猜出平台 + id（帧里没有现成字段，只能从 o / s 里捞） */
+  function guessSong(media) {
+    var blob = [media && media.o, media && media.s, media && media.b, media && media.r].join(' ');
+    var m = /(?:#163=|song\?id=)(\d{4,})/.exec(blob) || /music\.163\.com\/#?\/?song\?id=(\d+)/.exec(blob);
+    if (m) return { platform: 'netease', id: m[1] };
+    m = /songDetail\/([0-9A-Za-z]{8,})/.exec(blob);
+    if (m) return { platform: 'qq', id: m[1] };
+    m = /(BV[0-9A-Za-z]{10})/.exec(blob);
+    if (m) return { platform: 'bilibili', id: m[1] };
+    if (/@0/.test(blob)) return { platform: 'netease', id: '' };
+    if (/@2/.test(blob)) return { platform: 'qq', id: '' };
+    return { platform: '', id: '' };
   }
 
   /**
@@ -556,9 +603,20 @@
         }
         var media = parseMediaFrame(raw);
         if (media && media.n) {
-          var roomArtist = String(media.r || '').replace(/^@\d+/, '');
+          var roomArtist = String(media.r || '').replace(/^[@=!][\d]*/, '').trim();
           diag.roomNow = media.n + (roomArtist ? ' - ' + roomArtist : '');
-          if (panel) panel.setRoomNow('房间：' + media.n, roomArtist);
+          if (panel) {
+            var where = guessSong(media);
+            // 时长和歌词都来自服务器这一帧：拿去让面板走秒、到点自动收
+            panel.setRoomNow('房间：' + media.n, roomArtist, {
+              durationMs: Math.round((Number(media.d) || 0) * 1000),
+              artists: roomArtist ? [roomArtist] : [],
+              lrc: media.lrc || '',
+              platform: where.platform,
+              id: where.id,
+              startedAt: Date.now(),
+            });
+          }
         }
       } catch (e) {
         /* 解析失败只影响展示 */
@@ -1109,6 +1167,14 @@
     doc.addEventListener('keydown', onHotkey, true);
 
     observeRoom(locateApp());
+    // 掉线重连会换一个 socket 对象：每 3 秒补挂一次（observeRoom 自己幂等）
+    var observeTimer = setInterval(function () {
+      try {
+        observeRoom(locateApp());
+      } catch (e) {
+        /* 忽略 */
+      }
+    }, 3000);
 
     diag.api = apiBase();
     diag.relay = relayBase();
@@ -1128,6 +1194,11 @@
     diag.destroy = function () {
       try {
         setGestureEnabled(false);
+      } catch (e) {
+        /* 忽略 */
+      }
+      try {
+        clearInterval(observeTimer);
       } catch (e) {
         /* 忽略 */
       }

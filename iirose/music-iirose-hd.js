@@ -1,4 +1,4 @@
-/*! music-iirose v1.7.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v1.8.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -100,7 +100,7 @@
 .mk-sel{width:15px;height:15px;accent-color:var(--mk-accent);margin:0 4px 0 0;flex:none;cursor:pointer}
 .mk-range{width:100%;margin:8px 0 2px;accent-color:var(--mk-accent)}
 .mk-lyric-float{position:fixed;left:50%;bottom:14%;transform:translateX(-50%);z-index:2147483000;display:none;
-  max-width:min(86vw,720px);padding:10px 16px;border-radius:12px;text-align:center;pointer-events:auto;
+  width:min(86vw,var(--lf-w,520px));padding:10px 16px 12px;border-radius:12px;text-align:center;pointer-events:auto;
   background:rgba(10,14,20,.55);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);
   color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);font-size:16px;line-height:1.5;user-select:none;cursor:grab}
 .mk-lyric-float.mk-on{display:block}
@@ -108,9 +108,17 @@
 .mk-lyric-float[data-lock="1"]{pointer-events:none;cursor:default}
 .mk-lyric-float[data-size=sm]{font-size:14px}
 .mk-lyric-float[data-size=lg]{font-size:20px}
-.mk-lyric-float .lf-tr{font-size:.8em;opacity:.85;margin-top:2px}
+.mk-lyric-float .lf-lines{display:flex;flex-direction:column;gap:2px;align-items:center}
+.mk-lyric-float .lf-line{max-width:100%;white-space:pre-wrap;word-break:break-word;opacity:.4;
+  transition:opacity .16s,transform .16s;transform:scale(.97)}
+.mk-lyric-float .lf-line.on{opacity:1;font-weight:700;transform:scale(1)}
+.mk-lyric-float .lf-tr{display:block;font-size:.76em;opacity:.8;font-weight:400;margin-top:1px}
 .mk-lyric-float .lf-tip{position:absolute;right:8px;top:-18px;font-size:10px;opacity:.55;white-space:nowrap}
 .mk-lyric-float[data-lock="1"] .lf-tip{display:none}
+.mk-lyric-float .lf-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
+  border-right:2px solid rgba(255,255,255,.45);border-bottom:2px solid rgba(255,255,255,.45);
+  border-bottom-right-radius:11px;touch-action:none}
+.mk-lyric-float[data-lock="1"] .lf-grip{display:none}
 .mk-lyrics{display:none;padding:10px 16px 6px;max-height:24vh;overflow:auto;text-align:center;
   font-size:14px;line-height:1.65;color:var(--mk-dim);scroll-behavior:smooth}
 .mk-lyrics.mk-on{display:block}
@@ -451,7 +459,7 @@
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
       card: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
-      lyric: true, lyricSize: 'md', lyricFloat: true, lyricLock: false,
+      lyric: true, lyricSize: 'md', lyricFloat: true, lyricLock: false, lyricLines: 3, lyricW: 520,
       opacity: 1, clock: true,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
@@ -485,6 +493,10 @@
       out.lyricSize = out.lyricSize === 'sm' || out.lyricSize === 'lg' ? out.lyricSize : 'md';
       out.lyricFloat = out.lyricFloat !== false;
       out.lyricLock = out.lyricLock === true;
+      const lines = Number(out.lyricLines);
+      out.lyricLines = lines === 1 || lines === 5 ? lines : 3;
+      const lw = Number(out.lyricW);
+      out.lyricW = Number.isFinite(lw) ? Math.min(900, Math.max(220, Math.round(lw))) : 520;
       const z = Number(out.bgZoom);
       out.bgZoom = Number.isFinite(z) ? Math.min(2.5, Math.max(1, z)) : SETTINGS_DEFAULT.bgZoom;
       const bx = Number(out.bgX);
@@ -649,7 +661,7 @@
     }
 
     function setChip(group, value) {
-      const patch = { [group]: group === 'bgDim' ? Number(value) : String(value) };
+      const patch = { [group]: group === 'bgDim' || group === 'lyricLines' ? Number(value) : String(value) };
       settings = normalizeSettings(Object.assign({}, settings, patch));
       const ok = saveSettings();
       applySettings();
@@ -811,7 +823,18 @@
             chip('lyricSize', 'sm', '小字') +
             chip('lyricSize', 'md', '中字') +
             chip('lyricSize', 'lg', '大字') +
-            '</div>') +
+            '</div>' +
+            '<div class="mk-set-row"><div class="mk-meta"><b>歌词行数</b><small>1 行最干净；3 / 5 行能看到前后句，跟着高亮走</small></div></div>' +
+            '<div class="mk-chips">' +
+            chip('lyricLines', 1, '1 行') +
+            chip('lyricLines', 3, '3 行') +
+            chip('lyricLines', 5, '5 行') +
+            '</div>' +
+            '<div class="mk-set-row"><div class="mk-meta"><b>歌词窗宽度</b><small>也可以直接拖歌词窗右下角那个小三角</small></div>' +
+            '<span class="mk-badge" data-el="lyric-w-val">' + Math.round(settings.lyricW || 520) + 'px</span></div>' +
+            '<input class="mk-range" data-el="lyric-w" type="range" min="220" max="900" step="10" value="' +
+            Math.round(settings.lyricW || 520) +
+            '">') +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
         chip('theme', 'auto', '跟随系统') +
@@ -1342,6 +1365,17 @@
           setPlayIcon(true);
           setStat('已点播：' + esc(song.title));
           markPlayed(song, 'room');
+          // 记一笔「房间这首在放」：刷新后接得回来，放完自动收（含歌词）
+          beginRoomNow({
+            title: song.title,
+            sub: (song.artists || []).join(' / '),
+            artists: song.artists || [],
+            durationMs: (info && info.durationSec ? Number(info.durationSec) * 1000 : 0) || Number(song.durationMs) || 0,
+            platform: song.platform,
+            id: song.id,
+            startedAt: Date.now(),
+            predicted: true,
+          });
           return { played: true, mode: 'room' };
         }
         elAudio.src = info.streamUrl;
@@ -1432,6 +1466,15 @@
           settings = normalizeSettings(Object.assign({}, settings, patch));
           saveSettings();
           applySettings();
+          return;
+        }
+        if (t.getAttribute('data-el') === 'lyric-w') {
+          const w = Math.min(900, Math.max(220, Math.round(Number(t.value) || 520)));
+          settings = normalizeSettings(Object.assign({}, settings, { lyricW: w }));
+          saveSettings();
+          applySettings();
+          const lab = elBody.querySelector('[data-el=lyric-w-val]');
+          if (lab) lab.textContent = w + 'px';
           return;
         }
         if (t.getAttribute('data-el') !== 'opacity') return;
@@ -1750,6 +1793,140 @@
       renderQueue();
     }
 
+    // ------------------------------------------------------- 房间正在播放（记账 + 自动收尾）
+    // IIROSE 在「开播 / 切歌」时会推一帧 `&1`（带时长，部分还带 LRC）。
+    // 我们把这帧记进 localStorage，于是：
+    //   · 刷新页面（F5）之后能接回来，不用再去设置里切一圈；
+    //   · 到时长自动收（不再「歌放完了，歌词还挂在屏幕上」）。
+    const NOW_KEY = 'mk_room_now';
+
+    /** @type {null | {title:string, sub:string, artists:string[], startedAt:number, durationMs:number, platform:string, id:string, lrc:string}} */
+    let roomNow = null;
+    let roomNowTimer = null;
+
+    function readNow() {
+      try {
+        const raw = window.localStorage.getItem(NOW_KEY);
+        const o = raw ? JSON.parse(raw) : null;
+        if (!o || !o.title || !Number(o.startedAt)) return null;
+        return o;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writeNow(o) {
+      try {
+        if (o) window.localStorage.setItem(NOW_KEY, JSON.stringify(o));
+        else window.localStorage.removeItem(NOW_KEY);
+      } catch (e) {
+        /* 存不下就算了：内存里这份照样会自己收尾 */
+      }
+    }
+
+    /** 还剩多少毫秒；不知道时长就返回 null */
+    function nowRemainMs() {
+      if (!roomNow || !roomNow.durationMs) return null;
+      return roomNow.startedAt + roomNow.durationMs - Date.now();
+    }
+
+    function paintNow() {
+      // 本机试听时这块归本机播放器，别让房间那首一直盖着
+      if (playMode !== 'room') return;
+      if (!roomNow) {
+        setNow('未在播放', '点结果里的 ▶ 开始');
+        return;
+      }
+      const bits = [];
+      if (roomNow.artists && roomNow.artists.length) bits.push(roomNow.artists.join(' / '));
+      const left = nowRemainMs();
+      if (left != null) bits.push('剩 ' + fmtDur(Math.max(0, left)));
+      setNow('房间：' + roomNow.title, bits.join(' · '));
+    }
+
+    function stopNowTicker() {
+      if (roomNowTimer) {
+        clearInterval(roomNowTimer);
+        roomNowTimer = null;
+      }
+    }
+
+    function startNowTicker() {
+      stopNowTicker();
+      roomNowTimer = setInterval(() => {
+        if (!roomNow) {
+          stopNowTicker();
+          return;
+        }
+        const left = nowRemainMs();
+        // 多给 1.5s 余量：房间起播本身有延迟，别卡在最后一帧就收
+        if (left != null && left < -1500) {
+          endRoomNow();
+          return;
+        }
+        paintNow();
+      }, 1000);
+    }
+
+    /**
+     * 房间开播 / 切歌。
+     * 同一首在 8s 内被重复推帧（服务器有时候会补推）时不重置计时，只补全信息。
+     */
+    function beginRoomNow(info) {
+      const title = String((info && info.title) || '').trim();
+      if (!title) {
+        endRoomNow();
+        return null;
+      }
+      const prev = roomNow;
+      const same = Boolean(prev && prev.title === title && Date.now() - prev.startedAt < 8000);
+      // 点播时先按「我发出去的这一刻」预判；真正的开播帧到了再对齐一次（房间起播有 1-3 秒延迟，
+      // 不对齐的话歌词会跑在房间前面）
+      const fromFrame = !info || info.predicted !== true;
+      roomNow = {
+        title,
+        sub: (info && info.sub) || (same ? prev.sub : '') || '',
+        artists: (info && info.artists && info.artists.length ? info.artists : same ? prev.artists : []) || [],
+        startedAt:
+          same && !(prev.predicted && fromFrame) ? prev.startedAt : Number(info && info.startedAt) || Date.now(),
+        durationMs: Number(info && info.durationMs) || (same ? prev.durationMs : 0) || 0,
+        platform: (info && info.platform) || (same ? prev.platform : '') || '',
+        id: (info && info.id) || (same ? prev.id : '') || '',
+        lrc: (info && info.lrc) || (same ? prev.lrc : '') || '',
+        predicted: same ? Boolean(prev.predicted && !fromFrame) : !fromFrame,
+      };
+      writeNow(roomNow);
+      if (same && prev.predicted && fromFrame) {
+        // 真的开播了：把歌词时间轴也对齐过来
+        lyricT0 = roomNow.startedAt;
+        if (lyricLines.length) tickLyric();
+      }
+      paintNow();
+      startNowTicker();
+      if (!same) {
+        // 自己的歌：点播时 markPlayed 已经把歌词带起来了，这里不重来
+        const already = currentLyricSong && roomNow.id && String(currentLyricSong.id) === String(roomNow.id);
+        if (!already) {
+          if (roomNow.lrc) loadLyricFromText(roomNow);
+          else if (roomNow.platform && roomNow.id) startLyric(roomNow, roomNow.startedAt);
+          else stopLyric(); // 别人的歌又没有帧内歌词：不瞎猜
+        }
+      }
+      return roomNow;
+    }
+
+    /** 放完了（或房间清空了）：收起播放信息 + 歌词 */
+    function endRoomNow() {
+      roomNow = null;
+      stopNowTicker();
+      writeNow(null);
+      if (playMode === 'room') {
+        setNow('未在播放', '点结果里的 ▶ 开始');
+        stopLyric();
+      }
+      return null;
+    }
+
     // ---------------------------------------------------------------- 歌词（悬浮窗）
     let lyricLines = [];
     let lyricTimer = null;
@@ -1776,12 +1953,20 @@
       }
     }
 
+    // 极简环境（测试桩 / 老浏览器）里 el.style 可能不是 CSSStyleDeclaration
+    function setCssVar(el, name, value) {
+      if (!el || !el.style || typeof el.style.setProperty !== 'function') return;
+      el.style.setProperty(name, value);
+    }
+
     /** 歌词窗独立挂在 body 上：关掉点歌台它还在，可以拖到任意位置 */
     function ensureLyricFloat() {
       if (lyricFloat) return lyricFloat;
       const el = doc.createElement('div');
       el.className = 'mk-lyric-float';
-      el.innerHTML = '<div class="lf-main"></div><div class="lf-tr"></div><div class="lf-tip">按住拖动</div>';
+      el.innerHTML =
+        '<div class="lf-lines"></div><div class="lf-tip">拖动移动 · 右下角改大小</div><div class="lf-grip"></div>';
+      setCssVar(el, '--lf-w', Math.round(settings.lyricW || 520) + 'px');
       doc.body.appendChild(el);
       const pos = lyricPosSaved();
       if (pos) {
@@ -1793,8 +1978,10 @@
       let dragging = false;
       let offX = 0;
       let offY = 0;
+      const grip = el.querySelector('.lf-grip');
       el.addEventListener('pointerdown', (ev) => {
         if (settings.lyricLock) return;
+        if (grip && (ev.target === grip || (ev.target.closest && ev.target.closest('.lf-grip')))) return;
         dragging = true;
         const r = el.getBoundingClientRect();
         offX = (ev.clientX || 0) - r.left;
@@ -1827,20 +2014,77 @@
       };
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
+      if (grip) {
+        // 右下角拖拽改宽度：居中时两边一起长，所以要乘 2 才跟手
+        let resizing = false;
+        let startW = 0;
+        let startX = 0;
+        let factor = 1;
+        let pending = 0;
+        grip.addEventListener('pointerdown', (ev) => {
+          if (settings.lyricLock) return;
+          resizing = true;
+          startW = el.getBoundingClientRect().width || 520;
+          startX = ev.clientX || 0;
+          factor = el.style.transform === 'none' ? 1 : 2;
+          pending = 0;
+          try {
+            grip.setPointerCapture(ev.pointerId);
+          } catch (e) {
+            /* 忽略 */
+          }
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        grip.addEventListener('pointermove', (ev) => {
+          if (!resizing) return;
+          const w = Math.round(Math.min(900, Math.max(220, startW + ((ev.clientX || 0) - startX) * factor)));
+          pending = w;
+          setCssVar(el, '--lf-w', w + 'px');
+          ev.stopPropagation();
+        });
+        const doneResize = () => {
+          if (!resizing) return;
+          resizing = false;
+          if (pending) {
+            settings = normalizeSettings(Object.assign({}, settings, { lyricW: pending }));
+            saveSettings();
+            if (elBody && elBody.querySelector('[data-el=lyric-w-val]')) renderSettings();
+          }
+        };
+        grip.addEventListener('pointerup', doneResize);
+        grip.addEventListener('pointercancel', doneResize);
+      }
       lyricFloat = el;
       return el;
     }
 
-    function setLyricText(line) {
+    /** 按当前行号渲染窗口（1 / 3 / 5 行），当前行高亮 */
+    function paintLyric(idx) {
       if (!lyricFloat) return;
-      const main = lyricFloat.querySelector('.lf-main');
-      const tr = lyricFloat.querySelector('.lf-tr');
-      if (main) main.textContent = line ? line.text : '';
-      if (tr) {
-        const has = Boolean(line && line.tr);
-        tr.textContent = has ? line.tr : '';
-        tr.style.display = has ? '' : 'none';
+      const wrap = lyricFloat.querySelector('.lf-lines');
+      if (!wrap) return;
+      if (!lyricLines.length) {
+        if (wrap.innerHTML) wrap.innerHTML = '';
+        return;
       }
+      const n = Math.max(1, Number(settings.lyricLines) || 3);
+      const cur = idx < 0 ? 0 : idx;
+      let start = cur - Math.floor(n / 2);
+      if (start < 0) start = 0;
+      if (start + n > lyricLines.length) start = Math.max(0, lyricLines.length - n);
+      let html = '';
+      for (let i = start; i < Math.min(lyricLines.length, start + n); i += 1) {
+        const L = lyricLines[i];
+        html +=
+          '<div class="lf-line' +
+          (i === idx ? ' on' : '') +
+          '">' +
+          esc(L.text) +
+          (L.tr ? '<span class="lf-tr">' + esc(L.tr) + '</span>' : '') +
+          '</div>';
+      }
+      if (wrap.innerHTML !== html) wrap.innerHTML = html;
     }
 
     function renderLyricFloat() {
@@ -1850,11 +2094,11 @@
         settings.lyricFloat !== false &&
         Boolean(currentLyricSong) &&
         lyricLines.length > 0;
+      setCssVar(el, '--lf-w', Math.round(settings.lyricW || 520) + 'px');
       el.setAttribute('data-size', settings.lyricSize || 'md');
       el.setAttribute('data-lock', settings.lyricLock ? '1' : '0');
       el.classList.toggle('mk-on', on);
-      lyricIndex = -1;
-      if (on) setLyricText(null);
+      if (on) paintLyric(lyricIndex);
     }
 
     /** LRC → [{t, text, tr}]，支持一行多个时间戳 */
@@ -1908,28 +2152,67 @@
       }
       if (idx === lyricIndex) return;
       lyricIndex = idx;
-      setLyricText(idx >= 0 ? lyricLines[idx] : null);
+      paintLyric(idx);
     }
 
-    function startLyric(song) {
-      currentLyricSong = song || null;
+    function stopLyric() {
+      currentLyricSong = null;
       lyricLines = [];
-      lyricT0 = Date.now();
-      renderLyricFloat();
+      lyricIndex = -1;
       if (lyricTimer) {
         clearInterval(lyricTimer);
         lyricTimer = null;
       }
-      if (!song || typeof api.lyric !== 'function') return;
-      lyricTimer = setInterval(tickLyric, 300);
+      if (lyricFloat) lyricFloat.classList.remove('mk-on');
+    }
+
+    /** 直接用帧里带回来的 LRC（房间推的 `&1` 里就有），不依赖中转 */
+    function loadLyricFromText(rec) {
+      if (!rec) return;
+      currentLyricSong = rec;
+      lyricLines = parseLrc(rec.lrc);
+      lyricIndex = -1;
+      lyricT0 = Number(rec.startedAt) || Date.now();
+      if (lyricTimer) {
+        clearInterval(lyricTimer);
+        lyricTimer = null;
+      }
+      renderLyricFloat();
+      if (!lyricLines.length) return;
+      lyricTimer = setInterval(tickLyric, 250);
+      tickLyric();
+    }
+
+    /**
+     * 起播一首歌的歌词。
+     * startedAt 由外面给（房间那首是「真的开始播的时刻」），刷新后恢复时也用它把歌词对上。
+     */
+    function startLyric(song, startedAt) {
+      currentLyricSong = song || null;
+      lyricLines = [];
+      lyricIndex = -1;
+      lyricT0 = Number(startedAt) || Date.now();
+      if (lyricTimer) {
+        clearInterval(lyricTimer);
+        lyricTimer = null;
+      }
+      renderLyricFloat();
+      if (!song) return;
+      if (!song.platform || !song.id || typeof api.lyric !== 'function') {
+        if (song.lrc) loadLyricFromText(song);
+        return;
+      }
+      lyricTimer = setInterval(tickLyric, 250);
       api
         .lyric({ platform: song.platform, id: song.id })
         .then((d) => {
-          if (!currentLyricSong || currentLyricSong.id !== song.id) return; // 已经切歌
+          if (!currentLyricSong || String(currentLyricSong.id) !== String(song.id)) return; // 已经切歌
           let lines = parseLrc(d && d.lrc);
           if (lines.length) lines = mergeTranslation(lines, d && d.tlrc);
           lyricLines = lines;
+          lyricIndex = -1;
           renderLyricFloat();
+          tickLyric();
         })
         .catch(() => {
           /* 没歌词就只留着空窗 */
@@ -2430,6 +2713,19 @@
           }
           applyMode();
           notifyMode();
+          if (playMode === 'room') {
+            // 切回来：把（可能还在放的）房间这首接上，歌词没起过就顺手带起来
+            paintNow();
+            if (roomNow) {
+              startNowTicker();
+              if (!currentLyricSong) {
+                if (roomNow.lrc) loadLyricFromText(roomNow);
+                else if (roomNow.platform && roomNow.id) startLyric(roomNow, roomNow.startedAt);
+              }
+            }
+          } else {
+            stopNowTicker();
+          }
           setStat(playMode === 'room' ? '已切到「点播到房间」' : '已切到「仅本机试听」');
         }
         else if (name === 'prev') step(-1);
@@ -2541,6 +2837,7 @@
         clearInterval(clockTimer);
         clockTimer = null;
       }
+      stopNowTicker();
       if (lyricTimer) {
         clearInterval(lyricTimer);
         lyricTimer = null;
@@ -2581,6 +2878,25 @@
         .catch(() => {});
     }
 
+    // 刷新（F5）之后把「房间正在放的那首」接回来：还在放就继续走秒 + 续上歌词，
+    // 早该放完的直接丢掉。这样不用再为了刷新状态去设置里切一遍开关。
+    (function restoreRoomNow() {
+      const saved = readNow();
+      if (!saved) return;
+      const left = saved.durationMs ? saved.startedAt + saved.durationMs - Date.now() : null;
+      if (left != null && left < -1500) {
+        writeNow(null);
+        return;
+      }
+      roomNow = saved;
+      // 本机试听模式下只记着、不上屏；切回「点播到房间」时再接上
+      if (playMode !== 'room') return;
+      paintNow();
+      startNowTicker();
+      if (saved.lrc) loadLyricFromText(saved);
+      else if (saved.platform && saved.id) startLyric(saved, saved.startedAt);
+    })();
+
     if (opts.openOnMount !== false) open();
     return {
       open,
@@ -2599,9 +2915,16 @@
       },
       getMode: () => playMode,
       /** 宿主把「房间正在播放」推回面板（IIROSE 版监听 &1 帧后调用） */
-      setRoomNow(text, sub) {
-        setNow(text || '未在播放', sub || '');
+      setRoomNow(text, sub, meta) {
+        // 宿主传的是显示文案（「房间：歌名」），这里把前缀剥掉当标题
+        const title = String(text == null ? '' : text).replace(/^房间[:：]\s*/, '').trim();
+        if (!title) {
+          return endRoomNow();
+        }
+        return beginRoomNow(Object.assign({ title: title, sub: sub || '' }, meta || {}));
       },
+      /** 房间那边的歌放完了 / 被切走了（宿主可以显式调） */
+      clearRoomNow: () => endRoomNow(),
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
       queue: () => playQueue.slice(),
@@ -2633,7 +2956,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '1.7.0';
+  var VERSION = '1.8.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
@@ -3140,15 +3463,62 @@
     gestureOn: null,
   };
 
+  /**
+   * `&1` 有两种形态，统一归一化成 { n, r, d, s, o, b, lrc }：
+   *   1. 客户端发出去的那种 JSON：`&1{"s":…,"d":…,"n":…}`
+   *   2. 服务器广播的 `>` 分隔版（带时长，部分还带整段 LRC）：
+   *      `&1://m10…mp3>s://music.163.com/…#163=1439814454>225.817333>歌名>@0歌手>点歌人>2>封面>头像>>[00:00.000] 作词…`
+   * 形态 2 才是「房间真的开始放」的信号，也是刷新后能接回来的依据。
+   */
   function parseMediaFrame(data) {
     if (typeof data !== 'string') return null;
-    var i = data.indexOf('&1{');
-    if (i < 0) return null;
-    try {
-      return JSON.parse(data.slice(i + 2));
-    } catch (e) {
-      return null;
+    var at = data.indexOf('&1');
+    if (at < 0) return null;
+    var body = data.slice(at + 2);
+    if (body.charAt(0) === '{') {
+      try {
+        var j = JSON.parse(body);
+        return j && j.n ? j : null;
+      } catch (e) {
+        return null;
+      }
     }
+    var parts = body.split('>');
+    var di = -1;
+    for (var i = 0; i < Math.min(parts.length, 6); i += 1) {
+      if (/^\d+(\.\d+)?$/.test(parts[i])) {
+        di = i;
+        break;
+      }
+    }
+    if (di < 0 || !parts[di + 1]) return null;
+    var out = {
+      d: Number(parts[di]) || 0,
+      n: parts[di + 1] || '',
+      r: parts[di + 2] || '',
+      b: '',
+      s: parts[0] || '',
+      o: parts[di - 1] || '',
+      lrc: '',
+    };
+    // 歌词：从第一个 LRC 时间戳切起，前面的封面/头像段就不用管了
+    var lm = /\[\d{1,2}:\d{2}[.:]\d{1,3}\]/.exec(body);
+    if (lm) out.lrc = body.slice(lm.index).replace(/\\n/g, '\n');
+    return out;
+  }
+
+  /** 从帧里的链接猜出平台 + id（帧里没有现成字段，只能从 o / s 里捞） */
+  function guessSong(media) {
+    var blob = [media && media.o, media && media.s, media && media.b, media && media.r].join(' ');
+    var m = /(?:#163=|song\?id=)(\d{4,})/.exec(blob) || /music\.163\.com\/#?\/?song\?id=(\d+)/.exec(blob);
+    if (m) return { platform: 'netease', id: m[1] };
+    m = /songDetail\/([0-9A-Za-z]{8,})/.exec(blob);
+    if (m) return { platform: 'qq', id: m[1] };
+    m = /(BV[0-9A-Za-z]{10})/.exec(blob);
+    if (m) return { platform: 'bilibili', id: m[1] };
+    if (/@0/.test(blob)) return { platform: 'netease', id: '' };
+    if (/@2/.test(blob)) return { platform: 'qq', id: '' };
+    return { platform: '', id: '' };
   }
 
   /**
@@ -3172,9 +3542,20 @@
         }
         var media = parseMediaFrame(raw);
         if (media && media.n) {
-          var roomArtist = String(media.r || '').replace(/^@\d+/, '');
+          var roomArtist = String(media.r || '').replace(/^[@=!][\d]*/, '').trim();
           diag.roomNow = media.n + (roomArtist ? ' - ' + roomArtist : '');
-          if (panel) panel.setRoomNow('房间：' + media.n, roomArtist);
+          if (panel) {
+            var where = guessSong(media);
+            // 时长和歌词都来自服务器这一帧：拿去让面板走秒、到点自动收
+            panel.setRoomNow('房间：' + media.n, roomArtist, {
+              durationMs: Math.round((Number(media.d) || 0) * 1000),
+              artists: roomArtist ? [roomArtist] : [],
+              lrc: media.lrc || '',
+              platform: where.platform,
+              id: where.id,
+              startedAt: Date.now(),
+            });
+          }
         }
       } catch (e) {
         /* 解析失败只影响展示 */
@@ -3725,6 +4106,14 @@
     doc.addEventListener('keydown', onHotkey, true);
 
     observeRoom(locateApp());
+    // 掉线重连会换一个 socket 对象：每 3 秒补挂一次（observeRoom 自己幂等）
+    var observeTimer = setInterval(function () {
+      try {
+        observeRoom(locateApp());
+      } catch (e) {
+        /* 忽略 */
+      }
+    }, 3000);
 
     diag.api = apiBase();
     diag.relay = relayBase();
@@ -3744,6 +4133,11 @@
     diag.destroy = function () {
       try {
         setGestureEnabled(false);
+      } catch (e) {
+        /* 忽略 */
+      }
+      try {
+        clearInterval(observeTimer);
       } catch (e) {
         /* 忽略 */
       }
