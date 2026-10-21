@@ -307,8 +307,8 @@ if (card) {
   check('公屏卡片不带 g（带 g 会变成私聊，只有自己看得到）', !('g' in card), JSON.stringify(card).slice(0, 60));
 }
 check('帧计数被记录', diag && diag.framesSent === 2, String(diag && diag.framesSent));
-await tick(150);
-const lyrEl = panelEl.querySelector('[data-el=lyrics]');
+await tick(600);
+const lyrEl = window.document.querySelector('.mk-lyric-float');
 check('歌词面板显示原文', Boolean(lyrEl) && lyrEl.textContent.includes('晴天 歌词'), lyrEl ? lyrEl.textContent.slice(0, 40) : 'no el');
 check('外语歌词双行（译文）', Boolean(lyrEl) && lyrEl.textContent.includes('sunny line'));
 

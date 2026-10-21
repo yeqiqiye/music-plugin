@@ -1,4 +1,4 @@
-/*! music-iirose v1.6.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v1.7.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -99,6 +99,18 @@
 .mk-bili .mk-bf-input{flex:1 1 120px;min-width:110px}
 .mk-sel{width:15px;height:15px;accent-color:var(--mk-accent);margin:0 4px 0 0;flex:none;cursor:pointer}
 .mk-range{width:100%;margin:8px 0 2px;accent-color:var(--mk-accent)}
+.mk-lyric-float{position:fixed;left:50%;bottom:14%;transform:translateX(-50%);z-index:2147483000;display:none;
+  max-width:min(86vw,720px);padding:10px 16px;border-radius:12px;text-align:center;pointer-events:auto;
+  background:rgba(10,14,20,.55);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);
+  color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);font-size:16px;line-height:1.5;user-select:none;cursor:grab}
+.mk-lyric-float.mk-on{display:block}
+.mk-lyric-float.mk-drag{cursor:grabbing}
+.mk-lyric-float[data-lock="1"]{pointer-events:none;cursor:default}
+.mk-lyric-float[data-size=sm]{font-size:14px}
+.mk-lyric-float[data-size=lg]{font-size:20px}
+.mk-lyric-float .lf-tr{font-size:.8em;opacity:.85;margin-top:2px}
+.mk-lyric-float .lf-tip{position:absolute;right:8px;top:-18px;font-size:10px;opacity:.55;white-space:nowrap}
+.mk-lyric-float[data-lock="1"] .lf-tip{display:none}
 .mk-lyrics{display:none;padding:10px 16px 6px;max-height:24vh;overflow:auto;text-align:center;
   font-size:14px;line-height:1.65;color:var(--mk-dim);scroll-behavior:smooth}
 .mk-lyrics.mk-on{display:block}
@@ -334,7 +346,6 @@
         <div class="mk-bili" data-el="bili"></div>
         <div class="mk-body" data-el="body"></div>
         <div class="mk-pager" data-el="pager"></div>
-        <div class="mk-lyrics" data-el="lyrics"></div>
         <div class="mk-player">
           <button class="mk-ctl" data-act="prev" title="上一首">⏮</button>
           <button class="mk-ctl mk-main" data-act="toggle-play" title="播放 / 暂停">▶</button>
@@ -440,7 +451,7 @@
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
       card: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
-      lyric: true, lyricSize: 'md',
+      lyric: true, lyricSize: 'md', lyricFloat: true, lyricLock: false,
       opacity: 1, clock: true,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
@@ -472,6 +483,8 @@
       out.clock = out.clock !== false;
       out.lyric = out.lyric !== false;
       out.lyricSize = out.lyricSize === 'sm' || out.lyricSize === 'lg' ? out.lyricSize : 'md';
+      out.lyricFloat = out.lyricFloat !== false;
+      out.lyricLock = out.lyricLock === true;
       const z = Number(out.bgZoom);
       out.bgZoom = Number.isFinite(z) ? Math.min(2.5, Math.max(1, z)) : SETTINGS_DEFAULT.bgZoom;
       const bx = Number(out.bgX);
@@ -575,7 +588,7 @@
       }
       applyBackground();
       applyClock();
-      renderLyrics();
+      renderLyricFloat();
     }
 
     /** 顶栏时钟（精确到秒），可在设置里关掉 */
@@ -789,7 +802,9 @@
           : '') +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
-        sw('lyric', '显示歌词', '有歌词的曲目会在面板里滚动，外语歌显示原文 + 译文') +
+        sw('lyric', '显示歌词', '有歌词的曲目会在悬浮窗里滚动，外语歌显示原文 + 译文') +
+        sw('lyricFloat', '歌词悬浮窗', '独立于面板，关掉点歌台也还在') +
+        (settings.lyricFloat === false ? '' : sw('lyricLock', '锁定歌词窗', '锁定后不再挡住房间点击（想移动时再解锁）')) +
         (settings.lyric === false
           ? ''
           : '<div class="mk-chips">' +
@@ -1735,12 +1750,112 @@
       renderQueue();
     }
 
-    // ---------------------------------------------------------------- 歌词
+    // ---------------------------------------------------------------- 歌词（悬浮窗）
     let lyricLines = [];
     let lyricTimer = null;
     let lyricT0 = 0;
-    let lyricIdx = -1;
+    let lyricIndex = -1;
     let currentLyricSong = null;
+    let lyricFloat = null;
+
+    function lyricPosSaved() {
+      try {
+        const raw = window.localStorage.getItem('mk_lyric_pos');
+        const p = raw ? JSON.parse(raw) : null;
+        return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function saveLyricPos(x, y) {
+      try {
+        window.localStorage.setItem('mk_lyric_pos', JSON.stringify({ x: Math.round(x), y: Math.round(y) }));
+      } catch (e) {
+        /* 忽略 */
+      }
+    }
+
+    /** 歌词窗独立挂在 body 上：关掉点歌台它还在，可以拖到任意位置 */
+    function ensureLyricFloat() {
+      if (lyricFloat) return lyricFloat;
+      const el = doc.createElement('div');
+      el.className = 'mk-lyric-float';
+      el.innerHTML = '<div class="lf-main"></div><div class="lf-tr"></div><div class="lf-tip">按住拖动</div>';
+      doc.body.appendChild(el);
+      const pos = lyricPosSaved();
+      if (pos) {
+        el.style.left = pos.x + 'px';
+        el.style.top = pos.y + 'px';
+        el.style.bottom = 'auto';
+        el.style.transform = 'none';
+      }
+      let dragging = false;
+      let offX = 0;
+      let offY = 0;
+      el.addEventListener('pointerdown', (ev) => {
+        if (settings.lyricLock) return;
+        dragging = true;
+        const r = el.getBoundingClientRect();
+        offX = (ev.clientX || 0) - r.left;
+        offY = (ev.clientY || 0) - r.top;
+        el.style.left = r.left + 'px';
+        el.style.top = r.top + 'px';
+        el.style.bottom = 'auto';
+        el.style.transform = 'none';
+        el.classList.add('mk-drag');
+        try {
+          el.setPointerCapture(ev.pointerId);
+        } catch (e) {
+          /* 某些环境不支持 */
+        }
+        ev.preventDefault();
+      });
+      el.addEventListener('pointermove', (ev) => {
+        if (!dragging) return;
+        const x = Math.min(window.innerWidth - 60, Math.max(-20, (ev.clientX || 0) - offX));
+        const y = Math.min(window.innerHeight - 30, Math.max(-10, (ev.clientY || 0) - offY));
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+      });
+      const up = () => {
+        if (!dragging) return;
+        dragging = false;
+        el.classList.remove('mk-drag');
+        const r = el.getBoundingClientRect();
+        saveLyricPos(r.left, r.top);
+      };
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+      lyricFloat = el;
+      return el;
+    }
+
+    function setLyricText(line) {
+      if (!lyricFloat) return;
+      const main = lyricFloat.querySelector('.lf-main');
+      const tr = lyricFloat.querySelector('.lf-tr');
+      if (main) main.textContent = line ? line.text : '';
+      if (tr) {
+        const has = Boolean(line && line.tr);
+        tr.textContent = has ? line.tr : '';
+        tr.style.display = has ? '' : 'none';
+      }
+    }
+
+    function renderLyricFloat() {
+      const el = ensureLyricFloat();
+      const on =
+        settings.lyric !== false &&
+        settings.lyricFloat !== false &&
+        Boolean(currentLyricSong) &&
+        lyricLines.length > 0;
+      el.setAttribute('data-size', settings.lyricSize || 'md');
+      el.setAttribute('data-lock', settings.lyricLock ? '1' : '0');
+      el.classList.toggle('mk-on', on);
+      lyricIndex = -1;
+      if (on) setLyricText(null);
+    }
 
     /** LRC → [{t, text, tr}]，支持一行多个时间戳 */
     function parseLrc(text) {
@@ -1755,13 +1870,17 @@
           stamps.forEach((s) => {
             const m = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/.exec(s);
             if (!m) return;
-            out.push({ t: Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number('0.' + m[3]) : 0), text: body, tr: '' });
+            out.push({
+              t: Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number('0.' + m[3]) : 0),
+              text: body,
+              tr: '',
+            });
           });
         });
       return out.sort((a, b) => a.t - b.t);
     }
 
-    /** 把翻译按时间对齐到原文上（外语歌就是两行：原文 + 译文） */
+    /** 翻译按时间对齐到原文（外语歌 = 原文一行 + 译文一行） */
     function mergeTranslation(lines, tText) {
       const tr = parseLrc(tText);
       if (!tr.length) return lines;
@@ -1774,86 +1893,47 @@
       return lines;
     }
 
-    function renderLyrics() {
-      if (!elLyrics) return;
-      elLyrics.setAttribute('data-size', settings.lyricSize || 'md');
-      const on = settings.lyric !== false && Boolean(currentLyricSong);
-      if (!on) {
-        elLyrics.classList.remove('mk-on');
-        elLyrics.innerHTML = '';
-        return;
-      }
-      if (!lyricLines.length) {
-        elLyrics.innerHTML = '<div class="hint">没有歌词（或还在加载）</div>';
-        elLyrics.classList.add('mk-on');
-        return;
-      }
-      elLyrics.innerHTML = lyricLines
-        .map(
-          (l, i) =>
-            '<div class="ln" data-ln="' +
-            i +
-            '">' +
-            esc(l.text) +
-            (l.tr ? '<span class="tr">' + esc(l.tr) + '</span>' : '') +
-            '</div>',
-        )
-        .join('');
-      elLyrics.classList.add('mk-on');
-      lyricIdx = -1;
-    }
-
-    /** 本机模式跟 audio 走；房间模式只能按「发出去之后过了多久」估 */
     function lyricTime() {
       if (playMode === 'local' && elAudio && !elAudio.paused) return Number(elAudio.currentTime) || 0;
       return (Date.now() - lyricT0) / 1000;
     }
 
     function tickLyric() {
-      if (!elLyrics || !lyricLines.length || !elLyrics.classList.contains('mk-on')) return;
+      if (!lyricFloat || !lyricLines.length || !lyricFloat.classList.contains('mk-on')) return;
       const t = lyricTime();
       let idx = -1;
       for (let i = 0; i < lyricLines.length; i += 1) {
         if (lyricLines[i].t <= t + 0.2) idx = i;
         else break;
       }
-      if (idx === lyricIdx) return;
-      lyricIdx = idx;
-      const olds = elLyrics.querySelectorAll('.ln.on');
-      for (let i = 0; i < olds.length; i += 1) olds[i].classList.remove('on');
-      const cur = elLyrics.querySelector('[data-ln="' + idx + '"]');
-      if (cur) {
-        cur.classList.add('on');
-        if (typeof cur.scrollIntoView === 'function') {
-          try {
-            cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          } catch (e) {
-            /* 某些环境不支持参数 */
-          }
-        }
-      }
+      if (idx === lyricIndex) return;
+      lyricIndex = idx;
+      setLyricText(idx >= 0 ? lyricLines[idx] : null);
     }
 
     function startLyric(song) {
       currentLyricSong = song || null;
       lyricLines = [];
       lyricT0 = Date.now();
-      renderLyrics();
+      renderLyricFloat();
+      if (lyricTimer) {
+        clearInterval(lyricTimer);
+        lyricTimer = null;
+      }
       if (!song || typeof api.lyric !== 'function') return;
+      lyricTimer = setInterval(tickLyric, 300);
       api
         .lyric({ platform: song.platform, id: song.id })
         .then((d) => {
-          if (!currentLyricSong || currentLyricSong.id !== song.id) return; // 已经切歌了
+          if (!currentLyricSong || currentLyricSong.id !== song.id) return; // 已经切歌
           let lines = parseLrc(d && d.lrc);
           if (lines.length) lines = mergeTranslation(lines, d && d.tlrc);
           lyricLines = lines;
-          renderLyrics();
+          renderLyricFloat();
         })
         .catch(() => {
-          /* 没歌词就算了 */
+          /* 没歌词就只留着空窗 */
         });
-      if (lyricTimer) clearInterval(lyricTimer);
-      lyricTimer = setInterval(tickLyric, 300);
     }
     // ---------------------------------------------------------------- 点歌历史
     // 存在本机（localStorage），不联网、不上传：只记「我点过什么」。
@@ -1880,20 +1960,32 @@
 
     let history = loadHistory();
 
-    /** 记录一次真实发生的点歌（播放失败不会进来） */
+    /** 记录一次真实发生的点歌（播放失败不会进来）；同一首歌只占一条，次数累加 */
     function markPlayed(song, mode) {
       if (!song || !song.id) return;
-      history = history.filter((h) => !(h.platform === song.platform && h.id === song.id && Date.now() - h.t < 1500));
-      history.unshift({
-        t: Date.now(),
-        platform: song.platform,
-        id: song.id,
-        title: song.title,
-        artists: song.artists || [],
-        durationMs: song.durationMs || null,
-        cover: song.cover || '',
-        mode: mode || 'room',
-      });
+      const now = Date.now();
+      const idx = history.findIndex((h) => h.platform === song.platform && h.id === song.id);
+      if (idx >= 0) {
+        const prev = history.splice(idx, 1)[0];
+        prev.t = now;
+        prev.mode = mode || prev.mode;
+        prev.count = (prev.count || 1) + 1;
+        prev.title = song.title || prev.title;
+        prev.cover = song.cover || prev.cover;
+        history.unshift(prev);
+      } else {
+        history.unshift({
+          t: now,
+          platform: song.platform,
+          id: song.id,
+          title: song.title,
+          artists: song.artists || [],
+          durationMs: song.durationMs || null,
+          cover: song.cover || '',
+          mode: mode || 'room',
+          count: 1,
+        });
+      }
       startLyric(song);
       if (history.length > HIST_MAX) history = history.slice(0, HIST_MAX);
       saveHistory();
@@ -1919,7 +2011,7 @@
       const rows = history.length
         ? history
             .map((h, i) => {
-              const sub = [fmtWhen(h.t), MODE_LABEL[h.mode] || '', (h.artists || []).join(' / ')]
+              const sub = [fmtWhen(h.t), MODE_LABEL[h.mode] || '', (h.artists || []).join(' / '), (h.count || 1) > 1 ? '×' + h.count : '']
                 .filter(Boolean)
                 .join(' · ');
               return (
@@ -2449,6 +2541,18 @@
         clearInterval(clockTimer);
         clockTimer = null;
       }
+      if (lyricTimer) {
+        clearInterval(lyricTimer);
+        lyricTimer = null;
+      }
+      if (lyricFloat) {
+        try {
+          lyricFloat.remove();
+        } catch (e) {
+          /* 忽略 */
+        }
+        lyricFloat = null;
+      }
       try {
         window.removeEventListener('mk-settings', onWindowSettings);
         window.removeEventListener('storage', onStorage);
@@ -2529,7 +2633,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '1.6.0';
+  var VERSION = '1.7.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';
