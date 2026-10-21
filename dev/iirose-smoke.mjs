@@ -622,7 +622,7 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
       durationMs: 250000,
       platform: 'netease',
       id: '2000000002',
-      lrc: '[00:00.00]夜曲 歌词\n[00:31.00]第二句',
+      lrc: '[00:00.00]夜曲 歌词\n[00:05.00]第二句\n[00:10.00]第三句\n[00:15.00]第四句\n[00:20.00]第五句\n[00:25.00]第六句\n[00:28.00]第七句\n[00:29.00]第八句',
     }),
   );
   vm.runInContext(code, dA.getInternalVMContext(), { filename: 'music-iirose.js' });
@@ -633,7 +633,7 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   const lyA = dA.window.document.querySelector('.mk-lyric-float');
   check(
     '记录里的 LRC 直接显示（不靠中转）',
-    Boolean(lyA) && lyA.classList.contains('mk-on') && lyA.textContent.includes('夜曲 歌词'),
+    Boolean(lyA) && lyA.classList.contains('mk-on') && lyA.querySelectorAll('.lf-line').length === 3,
     lyA ? lyA.textContent.slice(0, 40) : 'no el',
   );
 
@@ -682,6 +682,54 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   check('放完自动收回「未在播放」', nowD.includes('未在播放'), nowD);
   check('放完把歌词窗一起收掉', !lyA.classList.contains('mk-on'), lyA.className);
   check('放完清掉 localStorage 里的记录', dA.window.localStorage.getItem('mk_room_now') === null);
+  // A2. 歌词窗自己的操作：A−/A+ 字号、上下拉改行数、锁定、关掉（设置里只有一个开关）
+  // 先给一首 5 分钟、8 行歌词的歌，让歌词窗处于显示状态
+  dA.window.socket.onmessage({
+    data:
+      '&1://m2.mp3>s://music.163.com/#/song?id=2>300>测试长歌>@0测试>上学>2>://c.jpg>http://a.jpg>>' +
+      '[00:00.00]第一句\n[00:20.00]第二句\n[00:40.00]第三句\n[00:60.00]第四句\n[00:80.00]第五句\n[00:100.00]第六句\n[00:120.00]第七句\n[00:140.00]第八句',
+  });
+  await tick(80);
+  check('新歌的歌词又亮起来', lyA.classList.contains('mk-on'));
+  const barA = lyA.querySelector('.lf-bar');
+  check('歌词窗上有 A−/A+/🔒/✕ 四个按钮', Boolean(barA) && barA.querySelectorAll('.lf-btn').length === 4);
+  const fsBefore = parseFloat(lyA.style.getPropertyValue('--lf-fs'));
+  barA.querySelector('[data-lf=plus]').dispatchEvent(new dA.window.MouseEvent('click', { bubbles: true }));
+  await tick(30);
+  check(
+    '点 A+ 字号真的变大（5 档）',
+    parseFloat(lyA.style.getPropertyValue('--lf-fs')) > fsBefore,
+    fsBefore + ' → ' + lyA.style.getPropertyValue('--lf-fs'),
+  );
+
+  const linesBefore = lyA.querySelectorAll('.lf-line').length;
+  const gripA = lyA.querySelector('.lf-grip');
+  gripA.dispatchEvent(new dA.window.MouseEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 200 }));
+  gripA.dispatchEvent(new dA.window.MouseEvent('pointermove', { bubbles: true, clientX: 200, clientY: 280 }));
+  await tick(30);
+  check(
+    '右下角往下拉 = 多看几行（不只是平着拉）',
+    lyA.querySelectorAll('.lf-line').length > linesBefore,
+    linesBefore + ' → ' + lyA.querySelectorAll('.lf-line').length,
+  );
+  gripA.dispatchEvent(new dA.window.MouseEvent('pointerup', { bubbles: true }));
+  await tick(20);
+
+  barA.querySelector('[data-lf=lock]').dispatchEvent(new dA.window.MouseEvent('click', { bubbles: true }));
+  await tick(30);
+  check('点 🔒 锁定后带 data-lock=1', lyA.getAttribute('data-lock') === '1', String(lyA.getAttribute('data-lock')));
+  check(
+    '锁定时只剩解锁按钮可点（不挡房间）',
+    lyA.getAttribute('data-lock') === '1' && /data-lock="1"/.test(lyA.outerHTML),
+  );
+  const savedA = JSON.parse(dA.window.localStorage.getItem('mk_panel_settings') || '{}');
+  check('锁定状态落盘', savedA.lyricLock === true, String(savedA.lyricLock));
+
+  barA.querySelector('[data-lf=close]').dispatchEvent(new dA.window.MouseEvent('click', { bubbles: true }));
+  await tick(30);
+  check('点 ✕ 关掉歌词', !lyA.classList.contains('mk-on'), lyA.className);
+  check('关掉歌词写进设置', JSON.parse(dA.window.localStorage.getItem('mk_panel_settings')).lyric === false);
+
 }
 
 console.log('');

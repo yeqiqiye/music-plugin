@@ -297,20 +297,49 @@ chipOf('accent', 'violet').dispatchEvent(new window.MouseEvent('click', { bubble
 await tick();
 check('切强调色后 root 带 data-accent=violet', rootEl.getAttribute('data-accent') === 'violet', String(rootEl.getAttribute('data-accent')));
 
-// ---- 自定义背景 ----
+// ---- 自定义背景：先弹「调整背景图」，满意了才落盘 ----
 const bgUrl = rootEl.querySelector('[data-el=bg-url]');
 check('背景输入框存在', Boolean(bgUrl));
 bgUrl.value = 'https://example.com/cover.jpg';
 rootEl.querySelector('[data-act=bg-apply]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
-check('应用链接后 data-bg=1', rootEl.getAttribute('data-bg') === '1', String(rootEl.getAttribute('data-bg')));
+const editor = window.document.querySelector('.mk-bgedit');
+check('用链接后先弹「调整背景图」', Boolean(editor));
+check('弹框时背景还没落盘', rootEl.getAttribute('data-bg') !== '1', String(rootEl.getAttribute('data-bg')));
+const stage = editor && editor.querySelector('[data-el=bge-stage]');
+check('预览框按面板比例给出宽高', Boolean(stage) && /px$/.test(stage.style.width) && /px$/.test(stage.style.height), stage && stage.style.width + 'x' + stage.style.height);
+const zoomInput = editor && editor.querySelector('[data-el=bge-zoom]');
+zoomInput.value = '180';
+zoomInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+const previewImg = editor.querySelector('[data-el=bge-img]');
+check('拖缩放实时改预览', /scale\(1\.8/.test(previewImg.style.transform || ''), previewImg.style.transform);
+check('预览用同一张图', (previewImg.style.backgroundImage || '').includes('cover.jpg'), previewImg.style.backgroundImage);
+// 取消：什么都不该变
+editor.querySelector('[data-bge=cancel]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('取消后弹框关闭', !window.document.querySelector('.mk-bgedit'));
+check('取消后背景没变', rootEl.getAttribute('data-bg') !== '1', String(rootEl.getAttribute('data-bg')));
+// 再来一次，这次点「用这张」
+bgUrl.value = 'https://example.com/cover.jpg';
+rootEl.querySelector('[data-act=bg-apply]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+const editor2 = window.document.querySelector('.mk-bgedit');
+const zoom2 = editor2 && editor2.querySelector('[data-el=bge-zoom]');
+zoom2.value = '180';
+zoom2.dispatchEvent(new window.Event('input', { bubbles: true }));
+editor2.querySelector('[data-bge=ok]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick();
+check('「用这张」后 data-bg=1', rootEl.getAttribute('data-bg') === '1', String(rootEl.getAttribute('data-bg')));
 check(
   'CSS 变量 --mk-bg-img 指向这张图',
   rootEl.style.getPropertyValue('--mk-bg-img').includes('https://example.com/cover.jpg'),
   rootEl.style.getPropertyValue('--mk-bg-img'),
 );
-check('背景写进 localStorage', JSON.parse(window.localStorage.getItem('mk_panel_settings')).bg === 'https://example.com/cover.jpg');
+const bgSaved = JSON.parse(window.localStorage.getItem('mk_panel_settings'));
+check('背景写进 localStorage', bgSaved.bg === 'https://example.com/cover.jpg');
+check('缩放值跟着落盘', Math.abs(bgSaved.bgZoom - 1.8) < 0.001, String(bgSaved.bgZoom));
 check('预览方块用上了这张图', (rootEl.querySelector('[data-el=bg-prev]').style.backgroundImage || '').includes('cover.jpg'));
+check('调整框关掉了', !window.document.querySelector('.mk-bgedit'));
 
 // 遮罩
 chipOf('bgDim', '0.72').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

@@ -101,20 +101,26 @@
 .mk-lyric-float{position:fixed;left:50%;bottom:14%;transform:translateX(-50%);z-index:2147483000;display:none;
   width:min(86vw,var(--lf-w,520px));padding:10px 16px 12px;border-radius:12px;text-align:center;pointer-events:auto;
   background:rgba(10,14,20,.55);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);
-  color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);font-size:16px;line-height:1.5;user-select:none;cursor:grab}
+  color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);font-size:var(--lf-fs,17px);line-height:1.5;user-select:none;cursor:grab}
 .mk-lyric-float.mk-on{display:block}
 .mk-lyric-float.mk-drag{cursor:grabbing}
 .mk-lyric-float[data-lock="1"]{pointer-events:none;cursor:default}
-.mk-lyric-float[data-size=sm]{font-size:14px}
-.mk-lyric-float[data-size=lg]{font-size:20px}
 .mk-lyric-float .lf-lines{display:flex;flex-direction:column;gap:2px;align-items:center}
 .mk-lyric-float .lf-line{max-width:100%;white-space:pre-wrap;word-break:break-word;opacity:.4;
   transition:opacity .16s,transform .16s;transform:scale(.97)}
 .mk-lyric-float .lf-line.on{opacity:1;font-weight:700;transform:scale(1)}
 .mk-lyric-float .lf-tr{display:block;font-size:.76em;opacity:.8;font-weight:400;margin-top:1px}
-.mk-lyric-float .lf-tip{position:absolute;right:8px;top:-18px;font-size:10px;opacity:.55;white-space:nowrap}
-.mk-lyric-float[data-lock="1"] .lf-tip{display:none}
-.mk-lyric-float .lf-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
+.mk-lyric-float .lf-bar{position:absolute;right:0;top:-22px;display:flex;gap:3px;pointer-events:auto}
+@media (hover:hover){
+  .mk-lyric-float .lf-bar{opacity:0;transition:opacity .15s}
+  .mk-lyric-float:hover .lf-bar{opacity:1}
+}
+.mk-lyric-float .lf-btn{background:rgba(10,14,20,.6);color:#fff;border:1px solid rgba(255,255,255,.16);
+  border-radius:7px;padding:1px 7px;font-size:11.5px;line-height:17px;cursor:pointer;opacity:.62}
+.mk-lyric-float .lf-btn:hover{opacity:1;border-color:rgba(255,255,255,.42)}
+.mk-lyric-float[data-lock="1"] .lf-bar{top:2px;right:2px}
+.mk-lyric-float[data-lock="1"] .lf-btn:not([data-lf=lock]){display:none}
+.mk-lyric-float .lf-grip{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;
   border-right:2px solid rgba(255,255,255,.45);border-bottom:2px solid rgba(255,255,255,.45);
   border-bottom-right-radius:11px;touch-action:none}
 .mk-lyric-float[data-lock="1"] .lf-grip{display:none}
@@ -254,6 +260,28 @@
   background-color:var(--mk-raised);background-image:none;background-size:cover;background-position:center}
 .mk-bg-inputs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
 .mk-bg-inputs .mk-input{flex:1 1 200px;min-width:0;padding:8px 11px;font-size:13px}
+/* ---- 背景图调整：预览框和面板同比例，先调好再放进去 ---- */
+.mk-bgedit{position:fixed;inset:0;z-index:2147482000;display:flex;align-items:center;justify-content:center;
+  padding:16px;background:rgba(6,9,13,.62);backdrop-filter:blur(2px)}
+.mk-bgedit-box{width:min(560px,94vw);max-height:92vh;overflow:auto;background:var(--mk-bg);color:var(--mk-fg);
+  border:1px solid var(--mk-line);border-radius:14px;box-shadow:var(--mk-shadow);padding:14px 16px 12px;
+  display:flex;flex-direction:column;gap:9px}
+.mk-bgedit-box h3{margin:0;font-size:14px}
+.mk-bgedit-box h3 small{display:block;font-weight:400;color:var(--mk-dim);font-size:11.5px;margin-top:3px}
+.mk-bgedit-stage{position:relative;margin:0 auto;border-radius:10px;overflow:hidden;background:#0b1017;
+  border:1px solid var(--mk-line);cursor:grab;touch-action:none}
+.mk-bgedit-stage.mk-drag{cursor:grabbing}
+.mk-bgedit-img{position:absolute;inset:0;background-repeat:no-repeat;background-size:cover;
+  background-position:center;will-change:transform}
+.mk-bgedit-grid{position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(to right,rgba(255,255,255,.16) 1px,transparent 1px),
+    linear-gradient(to bottom,rgba(255,255,255,.16) 1px,transparent 1px);
+  background-size:33.34% 100%,100% 33.34%}
+.mk-bgedit-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mk-dim)}
+.mk-bgedit-row b{color:var(--mk-accent);font-variant-numeric:tabular-nums;min-width:44px}
+.mk-bgedit-row input[type=range]{flex:1;accent-color:var(--mk-accent)}
+.mk-bgedit-note{margin:0;font-size:11.5px;color:var(--mk-dim);line-height:1.5}
+.mk-bgedit-acts{display:flex;gap:8px;justify-content:flex-end}
 .mk-hidden{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none}
 .mk-diag{color:var(--mk-dim);font-size:11px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--mk-line);line-height:1.6}
 .mk-check{white-space:pre-wrap;word-break:break-all;font-size:11.5px;line-height:1.55;color:var(--mk-dim);
@@ -458,7 +486,7 @@
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
       card: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
-      lyric: true, lyricSize: 'md', lyricFloat: true, lyricLock: false, lyricLines: 3, lyricW: 520,
+      lyric: true, lyricSize: 3, lyricFloat: true, lyricLock: false, lyricLines: 3, lyricW: 520,
       opacity: 1, clock: true,
     };
     // 同一页面里可能有两个实例（extJs 里留了旧链接），事件要能区分「是不是自己发的」
@@ -489,15 +517,19 @@
       out.quality = opts.hd && out.quality === '1080' ? '1080' : '720';
       out.clock = out.clock !== false;
       out.lyric = out.lyric !== false;
-      out.lyricSize = out.lyricSize === 'sm' || out.lyricSize === 'lg' ? out.lyricSize : 'md';
-      out.lyricFloat = out.lyricFloat !== false;
+      // 字号 5 档（数字）；老数据里的 sm/md/lg 映射过来
+      const legacySize = { sm: 2, md: 3, lg: 4 };
+      const sizeLevel = legacySize[out.lyricSize] || Math.round(Number(out.lyricSize) || 0);
+      out.lyricSize = sizeLevel >= 1 && sizeLevel <= 5 ? sizeLevel : 3;
+      // 歌词行数：1–9 行，拖动歌词窗右下角就能改（不再放设置页里）
+      const lines = Math.round(Number(out.lyricLines) || 0);
+      out.lyricLines = lines >= 1 && lines <= 9 ? lines : 3;
+      out.lyricFloat = true;
       out.lyricLock = out.lyricLock === true;
-      const lines = Number(out.lyricLines);
-      out.lyricLines = lines === 1 || lines === 5 ? lines : 3;
       const lw = Number(out.lyricW);
       out.lyricW = Number.isFinite(lw) ? Math.min(900, Math.max(220, Math.round(lw))) : 520;
       const z = Number(out.bgZoom);
-      out.bgZoom = Number.isFinite(z) ? Math.min(2.5, Math.max(1, z)) : SETTINGS_DEFAULT.bgZoom;
+      out.bgZoom = Number.isFinite(z) ? Math.min(3, Math.max(1, z)) : SETTINGS_DEFAULT.bgZoom;
       const bx = Number(out.bgX);
       out.bgX = Number.isFinite(bx) ? Math.min(50, Math.max(-50, bx)) : 0;
       const by = Number(out.bgY);
@@ -813,27 +845,8 @@
           : '') +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
-        sw('lyric', '显示歌词', '有歌词的曲目会在悬浮窗里滚动，外语歌显示原文 + 译文') +
-        sw('lyricFloat', '歌词悬浮窗', '独立于面板，关掉点歌台也还在') +
-        (settings.lyricFloat === false ? '' : sw('lyricLock', '锁定歌词窗', '锁定后不再挡住房间点击（想移动时再解锁）')) +
-        (settings.lyric === false
-          ? ''
-          : '<div class="mk-chips">' +
-            chip('lyricSize', 'sm', '小字') +
-            chip('lyricSize', 'md', '中字') +
-            chip('lyricSize', 'lg', '大字') +
-            '</div>' +
-            '<div class="mk-set-row"><div class="mk-meta"><b>歌词行数</b><small>1 行最干净；3 / 5 行能看到前后句，跟着高亮走</small></div></div>' +
-            '<div class="mk-chips">' +
-            chip('lyricLines', 1, '1 行') +
-            chip('lyricLines', 3, '3 行') +
-            chip('lyricLines', 5, '5 行') +
-            '</div>' +
-            '<div class="mk-set-row"><div class="mk-meta"><b>歌词窗宽度</b><small>也可以直接拖歌词窗右下角那个小三角</small></div>' +
-            '<span class="mk-badge" data-el="lyric-w-val">' + Math.round(settings.lyricW || 520) + 'px</span></div>' +
-            '<input class="mk-range" data-el="lyric-w" type="range" min="220" max="900" step="10" value="' +
-            Math.round(settings.lyricW || 520) +
-            '">') +
+        sw('lyric', '显示歌词', '有歌词的曲目在悬浮窗里滚动，外语歌原文 + 译文双行') +
+        '<p class="mk-note">歌词窗上直接调：<b>A− / A+</b> 字号（5 档）· 按住拖动位置 · 右下角斜着拉改大小（上下拉 = 多看 / 少看几行）· <b>🔒</b> 锁定后点击穿透 · <b>✕</b> 关掉。</p>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
         chip('theme', 'auto', '跟随系统') +
@@ -859,7 +872,8 @@
         '<div class="mk-set-group"><h4>背景</h4>' +
         '<div class="mk-set-row mk-bg-row"><div class="mk-meta"><b>背景图</b><small>当前：' +
         esc(bgKind) +
-        '；本机图片会先压缩再存进浏览器</small></div>' +
+        (settings.bg ? '；点「调整图片」先调位置 / 缩放，满意了再应用' : '；本机图片会先压缩再存进浏览器') +
+        '</small></div>' +
         '<span class="mk-bg-prev" data-el="bg-prev"></span></div>' +
         '<div class="mk-bg-inputs">' +
         '<input class="mk-input" data-el="bg-url" type="text" inputmode="url" placeholder="粘图片链接 https://…">' +
@@ -868,6 +882,10 @@
         '<button class="mk-btn mk-ghost" data-act="bg-clear">清除</button>' +
         '</div>' +
         '<input type="file" accept="image/*" data-el="bg-file" class="mk-hidden">' +
+        (settings.bg
+          ? '<div class="mk-bg-inputs"><button class="mk-btn mk-primary" data-act="bg-edit">调整图片（位置 / 缩放）</button>' +
+            '<button class="mk-btn mk-ghost" data-act="bg-reset">恢复默认</button></div>'
+          : '') +
         '<div class="mk-set-row"><div class="mk-meta"><b>遮罩</b><small>压暗一层，字更清楚</small></div></div>' +
         '<div class="mk-chips">' +
         chip('bgDim', 0, '无') +
@@ -876,24 +894,6 @@
         chip('bgDim', 0.72, '重') +
         '</div>' +
         sw('bgBlur', '背景模糊', '图片糊一层，更像毛玻璃') +
-        (settings.bg
-          ? '<div class="mk-set-row"><div class="mk-meta"><b>图片调整</b><small>缩放 / 左右 / 上下 / 亮度，拖动立即生效</small></div></div>' +
-            '<div class="mk-edit-grid">' +
-            '<label>缩放<input class="mk-range" data-el="bg-zoom" type="range" min="100" max="250" step="1" value="' +
-            Math.round((settings.bgZoom || 1.06) * 100) +
-            '"></label>' +
-            '<label>左右<input class="mk-range" data-el="bg-x" type="range" min="-50" max="50" step="1" value="' +
-            Math.round(settings.bgX || 0) +
-            '"></label>' +
-            '<label>上下<input class="mk-range" data-el="bg-y" type="range" min="-50" max="50" step="1" value="' +
-            Math.round(settings.bgY || 0) +
-            '"></label>' +
-            '<label>亮度<input class="mk-range" data-el="bg-bright" type="range" min="40" max="160" step="1" value="' +
-            Math.round((settings.bgBright || 1) * 100) +
-            '"></label>' +
-            '</div>' +
-            '<div class="mk-bg-inputs"><button class="mk-btn mk-ghost" data-act="bg-reset">恢复默认</button></div>'
-          : '') +
         '</div>' +
         (typeof opts.onRelayChange === 'function'
           ? '<div class="mk-set-group"><h4>中转</h4>' +
@@ -1009,6 +1009,200 @@
         };
         img.src = objectUrl;
       });
+    }
+
+    // ---------------------------------------------------- 背景图调整（先调好再放进去）
+    // 为什么要有这一步：背景是 background-size:cover，图片一进来就被居中裁好，
+    // 想露哪块只能靠事后那几个滑杆猜。这里给一个和面板等比的小预览，
+    // 拖图 = 挪位置、拉缩放 = 裁范围，面板用的是同一套 transform，所见即所得。
+    let bgEditor = null;
+
+    function closeBgEditor() {
+      if (bgEditor && bgEditor.parentNode) bgEditor.parentNode.removeChild(bgEditor);
+      bgEditor = null;
+    }
+
+    function openBgEditor(url, opts) {
+      const src = String(url || '').trim();
+      if (!src || !isSafeBg(src)) {
+        setStat('这个图片地址不支持');
+        return null;
+      }
+      closeBgEditor();
+      const options = opts || {};
+      const before = {
+        bg: settings.bg,
+        bgZoom: settings.bgZoom,
+        bgX: settings.bgX,
+        bgY: settings.bgY,
+        bgBright: settings.bgBright,
+      };
+      // 预览框跟面板同比例，这样裁出来的就是最终效果
+      let aspect = 1000 / 720;
+      try {
+        const card = root.querySelector('.mk-card');
+        const r = card && card.getBoundingClientRect ? card.getBoundingClientRect() : null;
+        if (r && r.width > 60 && r.height > 60) aspect = r.width / r.height;
+      } catch (e) {
+        /* 用默认比例 */
+      }
+      const vw = (window.innerWidth || 1200) - 64;
+      const vh = (window.innerHeight || 800) - 220;
+      let sw = Math.round(Math.min(520, vw));
+      let sh = Math.round(sw / aspect);
+      if (sh > vh && vh > 120) {
+        sh = Math.round(vh);
+        sw = Math.round(sh * aspect);
+      }
+      sw = Math.max(160, sw);
+      sh = Math.max(90, sh);
+
+      const draft = {
+        url: src,
+        zoom: options.fresh ? 1.06 : Number(settings.bgZoom) || 1.06,
+        x: options.fresh ? 0 : Number(settings.bgX) || 0,
+        y: options.fresh ? 0 : Number(settings.bgY) || 0,
+        bright: options.fresh ? 1 : Number(settings.bgBright) || 1,
+      };
+
+      const el = doc.createElement('div');
+      el.className = 'mk-bgedit';
+      el.innerHTML =
+        '<div class="mk-bgedit-box">' +
+        '<h3>调整背景图<small>拖动图片选位置；想挪得更多，先把缩放拉大</small></h3>' +
+        '<div class="mk-bgedit-stage" data-el="bge-stage" style="width:' + sw + 'px;height:' + sh + 'px">' +
+        '<div class="mk-bgedit-img" data-el="bge-img"></div><div class="mk-bgedit-grid"></div></div>' +
+        '<label class="mk-bgedit-row">缩放<b data-el="bge-zoom-val">' + Math.round(draft.zoom * 100) + '%</b>' +
+        '<input type="range" data-el="bge-zoom" min="100" max="300" step="1" value="' + Math.round(draft.zoom * 100) + '"></label>' +
+        '<label class="mk-bgedit-row">亮度<b data-el="bge-bright-val">' + Math.round(draft.bright * 100) + '%</b>' +
+        '<input type="range" data-el="bge-bright" min="40" max="160" step="1" value="' + Math.round(draft.bright * 100) + '"></label>' +
+        '<p class="mk-bgedit-note">预览框和面板同比例，这里看到什么样，用上去就是什么样。</p>' +
+        '<div class="mk-bgedit-acts">' +
+        '<button class="mk-btn mk-ghost" data-bge="reset">重置</button>' +
+        '<button class="mk-btn" data-bge="cancel">取消</button>' +
+        '<button class="mk-btn mk-primary" data-bge="ok">用这张</button>' +
+        '</div></div>';
+      root.appendChild(el);
+      bgEditor = el;
+
+      const stage = el.querySelector('[data-el=bge-stage]');
+      const img = el.querySelector('[data-el=bge-img]');
+
+      /** 平移不能露出底色：能挪的上限就是放大出来的那一圈 */
+      function clampPan() {
+        const max = Math.min(50, Math.max(0, ((draft.zoom - 1) / 2) * 100));
+        draft.x = Math.min(max, Math.max(-max, draft.x));
+        draft.y = Math.min(max, Math.max(-max, draft.y));
+      }
+
+      function paint() {
+        const st = img.style;
+        st.backgroundImage = 'url("' + src.replace(/["\\\n\r\t]/g, '') + '")';
+        st.backgroundSize = 'cover';
+        st.backgroundPosition = 'center';
+        st.filter = 'brightness(' + draft.bright + ')' + (settings.bgBlur ? ' blur(6px)' : '');
+        st.transform = 'scale(' + draft.zoom + ') translate(' + draft.x + '%, ' + draft.y + '%)';
+        const lab1 = el.querySelector('[data-el=bge-zoom-val]');
+        if (lab1) lab1.textContent = Math.round(draft.zoom * 100) + '%';
+        const lab2 = el.querySelector('[data-el=bge-bright-val]');
+        if (lab2) lab2.textContent = Math.round(draft.bright * 100) + '%';
+        const r1 = el.querySelector('[data-el=bge-zoom]');
+        if (r1 && String(r1.value) !== String(Math.round(draft.zoom * 100))) r1.value = String(Math.round(draft.zoom * 100));
+        const r2 = el.querySelector('[data-el=bge-bright]');
+        if (r2 && String(r2.value) !== String(Math.round(draft.bright * 100))) r2.value = String(Math.round(draft.bright * 100));
+      }
+
+      function commit() {
+        settings = normalizeSettings(
+          Object.assign({}, settings, {
+            bg: src,
+            bgZoom: draft.zoom,
+            bgX: draft.x,
+            bgY: draft.y,
+            bgBright: draft.bright,
+          }),
+        );
+        const ok = saveSettings();
+        applySettings();
+        closeBgEditor();
+        renderSettings();
+        if (!ok) setStat('这张图太大，浏览器存不下（约 5MB）：本次生效，刷新会丢');
+        else setStat('背景已应用（位置 / 缩放记在本机）');
+      }
+
+      let drag = false;
+      let sx = 0;
+      let sy = 0;
+      let ox = 0;
+      let oy = 0;
+      if (stage) {
+        stage.addEventListener('pointerdown', (ev) => {
+          drag = true;
+          sx = ev.clientX || 0;
+          sy = ev.clientY || 0;
+          ox = draft.x;
+          oy = draft.y;
+          stage.classList.add('mk-drag');
+          try {
+            stage.setPointerCapture(ev.pointerId);
+          } catch (e) {
+            /* 忽略 */
+          }
+          ev.preventDefault();
+        });
+        stage.addEventListener('pointermove', (ev) => {
+          if (!drag) return;
+          const dx = (ev.clientX || 0) - sx;
+          const dy = (ev.clientY || 0) - sy;
+          // 屏幕像素 → 百分比：translate 是先移再放大，所以 1% 在屏幕上等于 sw*zoom/100
+          draft.x = ox + (dx / (sw * draft.zoom)) * 100;
+          draft.y = oy + (dy / (sh * draft.zoom)) * 100;
+          clampPan();
+          paint();
+        });
+        const endDrag = () => {
+          drag = false;
+          stage.classList.remove('mk-drag');
+        };
+        stage.addEventListener('pointerup', endDrag);
+        stage.addEventListener('pointercancel', endDrag);
+      }
+
+      el.addEventListener('input', (ev) => {
+        const t = ev.target;
+        const f = t && t.getAttribute ? t.getAttribute('data-el') : '';
+        if (f === 'bge-zoom') {
+          draft.zoom = Math.min(3, Math.max(1, (Number(t.value) || 106) / 100));
+          clampPan();
+          paint();
+        } else if (f === 'bge-bright') {
+          draft.bright = Math.min(1.6, Math.max(0.4, (Number(t.value) || 100) / 100));
+          paint();
+        }
+      });
+
+      el.addEventListener('click', (ev) => {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('[data-bge]') : null;
+        if (!btn) return;
+        const act = btn.getAttribute('data-bge');
+        if (act === 'cancel') {
+          settings = normalizeSettings(Object.assign({}, settings, before));
+          applySettings();
+          closeBgEditor();
+          setStat('已取消，背景没变');
+        } else if (act === 'reset') {
+          draft.zoom = 1.06;
+          draft.x = 0;
+          draft.y = 0;
+          draft.bright = 1;
+          paint();
+        } else if (act === 'ok') {
+          commit();
+        }
+      });
+
+      paint();
+      return el;
     }
 
     // 别的实例 / 宿主改了设置：回读并重绘（自己发的事件直接跳过，免得来回刷）
@@ -1465,15 +1659,6 @@
           settings = normalizeSettings(Object.assign({}, settings, patch));
           saveSettings();
           applySettings();
-          return;
-        }
-        if (t.getAttribute('data-el') === 'lyric-w') {
-          const w = Math.min(900, Math.max(220, Math.round(Number(t.value) || 520)));
-          settings = normalizeSettings(Object.assign({}, settings, { lyricW: w }));
-          saveSettings();
-          applySettings();
-          const lab = elBody.querySelector('[data-el=lyric-w-val]');
-          if (lab) lab.textContent = w + 'px';
           return;
         }
         if (t.getAttribute('data-el') !== 'opacity') return;
@@ -1958,14 +2143,39 @@
       el.style.setProperty(name, value);
     }
 
+    /** 字号 5 档：A− / A+ 就在歌词窗上点，不用进设置 */
+    const LYRIC_SIZES = [13, 15, 17, 20, 24];
+    function lyricFontPx() {
+      const lv = Math.min(5, Math.max(1, Math.round(Number(settings.lyricSize) || 3)));
+      return LYRIC_SIZES[lv - 1];
+    }
+
+    function bumpLyricSize(delta) {
+      const cur = Math.min(5, Math.max(1, Math.round(Number(settings.lyricSize) || 3)));
+      const next = Math.min(5, Math.max(1, cur + delta));
+      if (next === cur) return;
+      settings = normalizeSettings(Object.assign({}, settings, { lyricSize: next }));
+      saveSettings();
+      applySettings();
+      setStat('歌词字号：' + LYRIC_SIZES[next - 1] + 'px（' + next + '/5）');
+    }
+
     /** 歌词窗独立挂在 body 上：关掉点歌台它还在，可以拖到任意位置 */
     function ensureLyricFloat() {
       if (lyricFloat) return lyricFloat;
       const el = doc.createElement('div');
       el.className = 'mk-lyric-float';
       el.innerHTML =
-        '<div class="lf-lines"></div><div class="lf-tip">拖动移动 · 右下角改大小</div><div class="lf-grip"></div>';
+        '<div class="lf-lines"></div>' +
+        '<div class="lf-bar">' +
+        '<button class="lf-btn" data-lf="minus" title="字号小一档">A−</button>' +
+        '<button class="lf-btn" data-lf="plus" title="字号大一档">A+</button>' +
+        '<button class="lf-btn" data-lf="lock" title="锁定（锁定后点击穿透到房间）">🔒</button>' +
+        '<button class="lf-btn" data-lf="close" title="关掉歌词（设置里能再打开）">✕</button>' +
+        '</div>' +
+        '<div class="lf-grip" title="拖动改大小：左右=宽度，上下=行数"></div>';
       setCssVar(el, '--lf-w', Math.round(settings.lyricW || 520) + 'px');
+      setCssVar(el, '--lf-fs', lyricFontPx() + 'px');
       doc.body.appendChild(el);
       const pos = lyricPosSaved();
       if (pos) {
@@ -1978,8 +2188,11 @@
       let offX = 0;
       let offY = 0;
       const grip = el.querySelector('.lf-grip');
+      const bar = el.querySelector('.lf-bar');
+      const inBar = (t) => Boolean(t && t.closest && t.closest('.lf-bar'));
       el.addEventListener('pointerdown', (ev) => {
         if (settings.lyricLock) return;
+        if (inBar(ev.target)) return;
         if (grip && (ev.target === grip || (ev.target.closest && ev.target.closest('.lf-grip')))) return;
         dragging = true;
         const r = el.getBoundingClientRect();
@@ -2013,20 +2226,51 @@
       };
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
+
+      // A− / A+ / 锁定 / 关掉：四个按钮都长在歌词窗上
+      if (bar) {
+        bar.addEventListener('click', (ev) => {
+          const btn = ev.target && ev.target.closest ? ev.target.closest('[data-lf]') : null;
+          if (!btn) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const act = btn.getAttribute('data-lf');
+          if (act === 'minus' || act === 'plus') {
+            bumpLyricSize(act === 'plus' ? 1 : -1);
+          } else if (act === 'lock') {
+            settings = normalizeSettings(Object.assign({}, settings, { lyricLock: !settings.lyricLock }));
+            saveSettings();
+            applySettings();
+            setStat(settings.lyricLock ? '歌词窗已锁定（点击穿透；点右上角 🔓 解锁）' : '歌词窗已解锁，可以拖了');
+          } else if (act === 'close') {
+            settings = normalizeSettings(Object.assign({}, settings, { lyric: false }));
+            saveSettings();
+            applySettings();
+            setStat('已关掉歌词（设置 → 外观 → 显示歌词 可以再打开）');
+          }
+        });
+      }
+
       if (grip) {
-        // 右下角拖拽改宽度：居中时两边一起长，所以要乘 2 才跟手
+        // 右下角斜着拉：左右 = 宽度，上下 = 行数（不是只能平着拉）
         let resizing = false;
         let startW = 0;
         let startX = 0;
+        let startY = 0;
+        let startLines = 3;
         let factor = 1;
-        let pending = 0;
+        let pendingW = 0;
+        let pendingLines = 0;
         grip.addEventListener('pointerdown', (ev) => {
           if (settings.lyricLock) return;
           resizing = true;
           startW = el.getBoundingClientRect().width || 520;
           startX = ev.clientX || 0;
+          startY = ev.clientY || 0;
+          startLines = Math.min(9, Math.max(1, Math.round(Number(settings.lyricLines) || 3)));
           factor = el.style.transform === 'none' ? 1 : 2;
-          pending = 0;
+          pendingW = 0;
+          pendingLines = 0;
           try {
             grip.setPointerCapture(ev.pointerId);
           } catch (e) {
@@ -2037,18 +2281,29 @@
         });
         grip.addEventListener('pointermove', (ev) => {
           if (!resizing) return;
-          const w = Math.round(Math.min(900, Math.max(220, startW + ((ev.clientX || 0) - startX) * factor)));
-          pending = w;
+          const dx = (ev.clientX || 0) - startX;
+          const dy = (ev.clientY || 0) - startY;
+          const w = Math.round(Math.min(900, Math.max(220, startW + dx * factor)));
+          // 一行大约 line-height + gap；往上拉 = 少几行
+          const perLine = Math.max(18, lyricFontPx() * 1.62);
+          const lines = Math.min(9, Math.max(1, startLines + Math.round(dy / perLine)));
+          pendingW = w;
+          pendingLines = lines;
           setCssVar(el, '--lf-w', w + 'px');
+          if (lines !== settings.lyricLines) {
+            settings = normalizeSettings(Object.assign({}, settings, { lyricLines: lines }));
+            paintLyric(lyricIndex);
+          }
           ev.stopPropagation();
         });
         const doneResize = () => {
           if (!resizing) return;
           resizing = false;
-          if (pending) {
-            settings = normalizeSettings(Object.assign({}, settings, { lyricW: pending }));
+          if (pendingW || pendingLines) {
+            settings = normalizeSettings(
+              Object.assign({}, settings, pendingW ? { lyricW: pendingW } : {}, pendingLines ? { lyricLines: pendingLines } : {}),
+            );
             saveSettings();
-            if (elBody && elBody.querySelector('[data-el=lyric-w-val]')) renderSettings();
           }
         };
         grip.addEventListener('pointerup', doneResize);
@@ -2067,7 +2322,7 @@
         if (wrap.innerHTML) wrap.innerHTML = '';
         return;
       }
-      const n = Math.max(1, Number(settings.lyricLines) || 3);
+      const n = Math.min(9, Math.max(1, Math.round(Number(settings.lyricLines) || 3)));
       const cur = idx < 0 ? 0 : idx;
       let start = cur - Math.floor(n / 2);
       if (start < 0) start = 0;
@@ -2094,7 +2349,7 @@
         Boolean(currentLyricSong) &&
         lyricLines.length > 0;
       setCssVar(el, '--lf-w', Math.round(settings.lyricW || 520) + 'px');
-      el.setAttribute('data-size', settings.lyricSize || 'md');
+      setCssVar(el, '--lf-fs', lyricFontPx() + 'px');
       el.setAttribute('data-lock', settings.lyricLock ? '1' : '0');
       el.classList.toggle('mk-on', on);
       if (on) paintLyric(lyricIndex);
@@ -2614,7 +2869,23 @@
         if (name === 'settings') renderSettings();
         else if (name === 'bg-apply') {
           const urlInput = elBody.querySelector('[data-el=bg-url]');
-          setBackground(urlInput ? urlInput.value : '');
+          const val = urlInput ? String(urlInput.value || '').trim() : '';
+          if (!val || !isSafeBg(val)) {
+            setStat('这个链接不支持：只认 http(s) 图片地址或本机图片');
+            return;
+          }
+          // 先打开调整框：位置 / 缩放满意了点「用这张」才落盘
+          openBgEditor(val, { fresh: true });
+        } else if (name === 'bg-edit') {
+          if (settings.bg) openBgEditor(settings.bg);
+        } else if (name === 'bg-reset') {
+          settings = normalizeSettings(
+            Object.assign({}, settings, { bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1 }),
+          );
+          saveSettings();
+          applySettings();
+          renderSettings();
+          setStat('背景位置 / 缩放已恢复默认');
         } else if (name === 'bg-file') {
           const fileInput = elBody.querySelector('[data-el=bg-file]');
           if (fileInput && fileInput.click) fileInput.click();
@@ -2780,7 +3051,9 @@
       setStat('正在压缩图片…');
       try {
         const dataUrl = await shrinkImage(file);
-        setBackground(dataUrl);
+        // 先给调整框：位置 / 缩放满意了点「用这张」才真正应用
+        setStat('调整一下位置和缩放，再点「用这张」');
+        openBgEditor(dataUrl, { fresh: true });
       } catch (err) {
         setStat('背景图失败：' + esc(String((err && err.message) || err)));
       }
@@ -2789,6 +3062,13 @@
     root.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {
         ev.stopPropagation();
+        if (bgEditor) {
+          // 调整框开着时，Esc 只关它，别把整个面板关了
+          const cancelBtn = bgEditor.querySelector('[data-bge=cancel]');
+          if (cancelBtn) cancelBtn.click();
+          else closeBgEditor();
+          return;
+        }
         close();
       } else if (ev.key === 'Enter' && ev.target === elKw) {
         ev.preventDefault();
@@ -2807,7 +3087,6 @@
       applySettings();
       renderTabs();
       renderScopes();
-    renderBiliFilters();
       renderBiliFilters();
       if (elKw && elKw.placeholder !== undefined) elKw.placeholder = placeholderOf();
       if (!elBody.childElementCount) {
@@ -2832,6 +3111,7 @@
 
     function dispose() {
       close();
+      closeBgEditor();
       if (clockTimer) {
         clearInterval(clockTimer);
         clockTimer = null;
