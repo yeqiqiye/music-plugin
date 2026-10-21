@@ -732,6 +732,41 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
 
 }
 
+// ---------------- 12. 一次性点多首：真的每首都发（不再只发第一首） ----------------
+{
+  const panel12 = window.__MUSIC_IIROSE__.panel;
+  const mediaCount = () => sent.filter((f) => String(f).startsWith('&1')).length;
+  const mk = (id, title, dur) => ({ platform: 'netease', id, title, artists: ['周杰伦'], durationMs: dur });
+
+  const before12 = mediaCount();
+  const p12 = panel12.playAll([mk('1901371647', '晴天', 278961), mk('1901371648', '七里香', 299000), mk('1901371649', '夜曲', 250000)]);
+  await tick(150);
+  check('批量点歌立刻开始发第一首', mediaCount() > before12, 'sent ' + (mediaCount() - before12));
+  const bar12 = panelEl.querySelector('[data-el=batch]');
+  check('面板顶部出现批量进度（不在房间里刷）', Boolean(bar12) && bar12.classList.contains('mk-on'), bar12 && bar12.className);
+  check('进度里带 x/y', /1\/3/.test(panelEl.querySelector('[data-el=batch-txt]').textContent), panelEl.querySelector('[data-el=batch-txt]').textContent);
+
+  await tick(1800);
+  const res12 = await p12;
+  check('3 首都发进房间（不是只发第一首）', res12.ok === 3 && mediaCount() - before12 >= 3, JSON.stringify(res12).slice(0, 70));
+  check('批量进度条收起', !panelEl.querySelector('[data-el=batch]').classList.contains('mk-on'));
+  check(
+    '点完在房间里留一条汇总（首数 / 时长，不带进度刷屏）',
+    Boolean(diag.lastNotice) && /3 \/ 3 首/.test(String(diag.lastNotice)) && /分钟/.test(String(diag.lastNotice)),
+    String(diag.lastNotice),
+  );
+
+  // 取消：8 首点到一半停下
+  const before13 = mediaCount();
+  const many = Array.from({ length: 8 }, (_, i) => mk(String(1901373000 + i), '批量' + i, 200000));
+  const p13 = panel12.playAll(many);
+  await tick(700);
+  panelEl.querySelector('[data-act=batch-cancel]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const res13 = await p13;
+  check('取消后不再继续点', res13.cancelled === true, JSON.stringify(res13).slice(0, 60));
+  check('取消时确实只发了几首', mediaCount() - before13 < 8, 'sent ' + (mediaCount() - before13));
+}
+
 console.log('');
 if (failures.length) {
   console.log('结果：' + failures.length + ' 项失败 -> ' + failures.join(' / '));

@@ -517,6 +517,7 @@
     framesSent: 0,
     lastError: null,
     lastEnqueue: null,
+    lastNotice: null,
     roomNow: null,
     api: null,
     instances: window.__MUSIC_IIROSE_LOADS__ || 1,
@@ -883,6 +884,17 @@
         app.socket.send(JSON.stringify({ m: '@ ' + link, mc: color, i: msgId() }));
         diag.framesSent += 1;
         diag.lastEnqueue = 'native: ' + link;
+      },
+      // 整批点完后在房间里留一条「基础信息」（不带进度条刷屏）；由面板决定发不发
+      onNotice: function (text) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var msg = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        if (!msg) return;
+        var color = normColor(app.inputcolorhex);
+        app.socket.send(JSON.stringify({ m: msg, mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastNotice = msg;
       },
       onSettingsChange: function (s) {
         applyEntrySettings(s);

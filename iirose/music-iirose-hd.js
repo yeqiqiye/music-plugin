@@ -1,4 +1,4 @@
-/*! music-iirose v1.9.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.0.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -154,6 +154,13 @@
 .mk-select{background:var(--mk-input);color:inherit;border:1px solid var(--mk-line);
   border-radius:10px;padding:10px 12px;font-size:13px;outline:none}
 .mk-tabs{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap;border-bottom:1px solid var(--mk-line)}
+/* 批量点歌的进度条（只在面板里，不往房间里刷） */
+.mk-batch{display:none;align-items:center;gap:8px;margin:0 16px 8px;padding:6px 10px;border-radius:9px;
+  background:var(--mk-raised);border:1px solid var(--mk-line);font-size:12px;color:var(--mk-dim)}
+.mk-batch.mk-on{display:flex}
+.mk-batch span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mk-batch b{color:var(--mk-accent);font-variant-numeric:tabular-nums}
+.mk-batch .mk-btn{margin-left:auto;padding:2px 9px;font-size:11.5px;flex:none}
 .mk-tab-ico{margin-right:4px;font-size:13px}
 .mk-tab{background:transparent;color:var(--mk-dim);border:1px solid transparent;border-radius:8px;
   padding:6px 12px;font-size:13px;cursor:pointer}
@@ -378,6 +385,10 @@
           <button class="mk-btn mk-primary" data-act="search">搜索</button>
         </div>
         <div class="mk-tabs" data-el="tabs"></div>
+        <div class="mk-batch" data-el="batch">
+          <span data-el="batch-txt"></span>
+          <button class="mk-btn mk-ghost" data-act="batch-cancel">取消</button>
+        </div>
         <div class="mk-scopes" data-el="scopes"></div>
         <div class="mk-bili" data-el="bili"></div>
         <div class="mk-body" data-el="body"></div>
@@ -485,7 +496,7 @@
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, batchSummary: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
       lyric: true, lyricSize: 3, lyricFloat: true, lyricLock: false, lyricLines: 3, lyricW: 520,
       opacity: 1, clock: true,
@@ -511,6 +522,7 @@
       if (!out.ball && !out.gesture) out.ball = true;
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
+      out.batchSummary = out.batchSummary !== false;
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
@@ -830,6 +842,7 @@
         '<p class="mk-note">两个入口至少留一个：想关掉这个，先把另一个打开（不会再自动帮你打开别的）。</p></div>' +
         '<div class="mk-set-group"><h4>点歌</h4>' +
         sw('card', '发送点播卡片', '关掉后只发媒体数据：歌照播，但公屏/前端不再出现那张点播卡片') +
+        sw('batchSummary', '点完发一条汇总', '整批点完后在房间里留一句：几首 / 总时长 / 哪几首没拿到音频（不带进度条刷屏）') +
         '<div class="mk-set-row"><div class="mk-meta"><b>B 站播放</b><small>音频轨最省流量；视频要「视频分享」房间，而且走中转流量</small></div></div>' +
         '<div class="mk-chips">' +
         chip('bili', 'audio', '音频轨') +
@@ -1911,6 +1924,142 @@
       setStat('已返回搜索结果');
     }
 
+    // ------------------------------------------------ 一次性点多首（房间模式）
+    // 以前「全部点歌」只把第一首发进房间，其余留在本机队列里 —— 房间不会自己往下播，
+    // 所以看起来「点了 34 首，房间里只有 1 首」。现在一首一首真发：
+    //   · 每首发之前才解析地址（播放地址带 20 分钟签名，提前解析会过期）；
+    //   · 中间留一点间隔，避免被服务器当刷屏限流；
+    //   · 进度只显示在面板里（不往房间刷进度），随时能取消；
+    //   · 点完可选发一条「基础信息」汇总（首数 / 总时长 / 没拿到音频的那几首）。
+    const BATCH_GAP_MS = 420;
+    const BATCH_MAX = 60;
+    let batchToken = null;
+
+    function sleep(ms) {
+      return new Promise((r) => setTimeout(r, ms));
+    }
+
+    function setBatchText(html) {
+      const bar = $('[data-el=batch]');
+      const txt = $('[data-el=batch-txt]');
+      if (txt) txt.innerHTML = html || '';
+      if (bar && bar.classList) bar.classList.toggle('mk-on', Boolean(html));
+    }
+
+    function cancelBatch() {
+      if (!batchToken) return;
+      batchToken.cancelled = true;
+      setStat('已取消：后面的不再点了（已经发出去的在房间队列里）');
+    }
+
+    /** 整批点歌时 B 站用哪种播法：外链/原生是「一次一条消息」，不适合整批，降级成音频轨 */
+    function batchPlayAs(song) {
+      if (song.platform !== 'bilibili') return 'audio';
+      return settings.bili === 'video' ? 'video' : 'audio';
+    }
+
+    function batchSummaryText(label, ok, total, totalMs, failed) {
+      const bits = [];
+      bits.push('点歌' + (label ? '《' + label + '》' : '') + '：' + ok + ' / ' + total + ' 首进队列');
+      if (totalMs) bits.push('约 ' + (totalMs / 60000).toFixed(1) + ' 分钟');
+      if (failed.length) {
+        bits.push(failed.length + ' 首没拿到音频（' + failed.slice(0, 3).map((f) => f.song.title).join(' / ') + (failed.length > 3 ? ' 等' : '') + '）');
+      }
+      return bits.join(' · ');
+    }
+
+    async function sendBatch(songs, label) {
+      const list = [];
+      const seen = new Set();
+      (songs || []).forEach((s) => {
+        if (!s || !s.id) return;
+        const k = songKey(s);
+        if (seen.has(k)) return; // 同一首只点一次
+        seen.add(k);
+        list.push(s);
+      });
+      if (!list.length) {
+        setStat('这里没有可点的歌');
+        return { ok: 0, failed: [], cancelled: false };
+      }
+      const queue = list.slice(0, BATCH_MAX);
+      if (list.length > BATCH_MAX) setStat('一次最多点 ' + BATCH_MAX + ' 首，这次先点前 ' + BATCH_MAX + ' 首');
+
+      const token = { cancelled: false };
+      batchToken = token;
+      playQueue = queue.slice();
+      playIndex = 0;
+      refreshRows();
+      let ok = 0;
+      let totalMs = 0;
+      const failed = [];
+      for (let i = 0; i < queue.length; i += 1) {
+        if (token.cancelled) break;
+        const song = queue[i];
+        setBatchText('正在点 <b>' + (i + 1) + '/' + queue.length + '</b> · ' + esc(song.title));
+        try {
+          if (playMode !== 'room') throw new Error('本机试听模式不发房间');
+          if (typeof opts.onEnqueue !== 'function') throw new Error('当前环境不支持点播到房间');
+          let info = null;
+          try {
+            info = await api.playurl({
+              platform: song.platform,
+              id: song.id,
+              mode: batchPlayAs(song),
+              quality: settings.quality,
+            });
+          } catch (e) {
+            // 网络抖一下重试一次，别让整批因为一次超时就断掉
+            await sleep(600);
+            info = await api.playurl({
+              platform: song.platform,
+              id: song.id,
+              mode: batchPlayAs(song),
+              quality: settings.quality,
+            });
+          }
+          if (!info || !info.playable) throw new Error((info && info.note) || '拿不到播放地址');
+          if (token.cancelled) break;
+          await opts.onEnqueue(song, info);
+          ok += 1;
+          totalMs += Number(song.durationMs) || 0;
+          markPlayed(song, 'room');
+          if (i === 0) {
+            beginRoomNow({
+              title: song.title,
+              sub: (song.artists || []).join(' / '),
+              artists: song.artists || [],
+              durationMs: Number(song.durationMs) || 0,
+              platform: song.platform,
+              id: song.id,
+              startedAt: Date.now(),
+              predicted: true,
+            });
+          }
+        } catch (err) {
+          failed.push({ song, why: String((err && err.message) || err) });
+        }
+        if (i < queue.length - 1 && !token.cancelled) await sleep(BATCH_GAP_MS);
+      }
+      const cancelled = token.cancelled;
+      if (batchToken === token) batchToken = null;
+      setBatchText('');
+      setStat(
+        '已点 ' + ok + '/' + queue.length + ' 首' +
+          (failed.length ? ' · ' + failed.length + ' 首失败' : '') +
+          (cancelled ? ' · 已取消' : ''),
+      );
+      // 房间里留一条“基础信息”，不然几十首点完谁也不知道点了什么
+      if (settings.batchSummary !== false && ok >= 2 && playMode === 'room' && typeof opts.onNotice === 'function') {
+        try {
+          opts.onNotice(batchSummaryText(label, ok, queue.length, totalMs, failed));
+        } catch (e) {
+          /* 汇总发不出去不影响点歌 */
+        }
+      }
+      return { ok, failed, cancelled };
+    }
+
     /** 批量入队（最多 100 首，避免一口气把队列塞爆） */
     function queueAll(list) {
       let added = 0;
@@ -1925,32 +2074,42 @@
       return added;
     }
 
-    /** 全部点歌：整批入队 + 从第一首开始播（不重复塞已经在队列里的） */
+    /** 全部点歌：房间里就是「一首一首真发」；本机试听还是走本地队列 */
     function playAll(list) {
       const songs = (list || []).filter((s) => s && s.id).slice(0, 100);
       if (!songs.length) {
         setStat('这里没有可点的歌');
-        return;
+        return Promise.resolve({ ok: 0, failed: [], cancelled: false });
+      }
+      if (playMode === 'room') {
+        const label = (playlistCtx && playlistCtx.pl && playlistCtx.pl.name) || '';
+        return sendBatch(songs, label);
       }
       playQueue = songs.slice();
       playIndex = 0;
       refreshRows();
       playSong(playQueue[0], { enqueue: false });
       setStat('整批点歌 ' + songs.length + ' 首，正在播第 1 首');
+      return Promise.resolve({ ok: songs.length, failed: [], cancelled: false });
     }
 
-    /** 点选中的：把勾选的几首依次入队并播第一首 */
+    /** 点选中的：房间模式同样一首一首发，不是只发第一首 */
     function playSelected() {
       const picked = (lastResults || []).filter((s) => s && s.id && selected.has(songKey(s)));
       if (!picked.length) {
         setStat('还没勾选歌曲');
-        return;
+        return Promise.resolve({ ok: 0, failed: [], cancelled: false });
+      }
+      if (playMode === 'room') {
+        const label = (playlistCtx && playlistCtx.pl && playlistCtx.pl.name) || '';
+        return sendBatch(picked, label);
       }
       playQueue = picked.slice();
       playIndex = 0;
       refreshRows();
       playSong(playQueue[0], { enqueue: false });
       setStat('点选中的 ' + picked.length + ' 首，正在播第 1 首');
+      return Promise.resolve({ ok: picked.length, failed: [], cancelled: false });
     }
 
     function toggleSelectAll() {
@@ -2936,6 +3095,7 @@
         } else if (name === 'batch') queueAll(lastResults);
         else if (name === 'batch-play') playAll(lastResults);
         else if (name === 'play-sel') playSelected();
+        else if (name === 'batch-cancel') cancelBatch();
         else if (name === 'sel-all') toggleSelectAll();
         else if (name === 'queue') renderQueue();
         else if (name === 'history') renderHistory();
@@ -3207,6 +3367,9 @@
       clearRoomNow: () => endRoomNow(),
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
+      /** 整批点歌（给测试 / 诊断用；房间模式下就是上面那套节流发送） */
+      playAll: (list) => playAll(list && list.length ? list : lastResults),
+      batchState: () => (batchToken ? { running: true } : { running: false }),
       queue: () => playQueue.slice(),
       results: () => lastResults.slice(),
       state: playerState,
@@ -3236,7 +3399,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '1.9.0';
+  var VERSION = '2.0.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
@@ -3736,6 +3899,7 @@
     framesSent: 0,
     lastError: null,
     lastEnqueue: null,
+    lastNotice: null,
     roomNow: null,
     api: null,
     instances: window.__MUSIC_IIROSE_LOADS__ || 1,
@@ -4102,6 +4266,17 @@
         app.socket.send(JSON.stringify({ m: '@ ' + link, mc: color, i: msgId() }));
         diag.framesSent += 1;
         diag.lastEnqueue = 'native: ' + link;
+      },
+      // 整批点完后在房间里留一条「基础信息」（不带进度条刷屏）；由面板决定发不发
+      onNotice: function (text) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var msg = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        if (!msg) return;
+        var color = normColor(app.inputcolorhex);
+        app.socket.send(JSON.stringify({ m: msg, mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastNotice = msg;
       },
       onSettingsChange: function (s) {
         applyEntrySettings(s);
