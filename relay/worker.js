@@ -101,10 +101,33 @@ async function neteaseSearch({ keyword, limit, page }, env) {
   });
 }
 
-async function neteasePlayUrl(id, env) {
-  const url = 'https://music.163.com/api/song/enhance/player/url?ids=%5B' + encodeURIComponent(id) + '%5D&br=320000';
-  const data = await fetchJson(url, netHeaders(env));
-  const d = data?.data?.[0];
+async function neteasePlayUrl(id, env, mode, opts) {
+  // 音质档位（借 IIROSE-MEDIA-WEB 的做法）：v1 接口支持 level，
+  // 不传就退回老接口的 br=320000，行为跟以前完全一致。
+  const LEVELS = ['standard', 'higher', 'exhigh', 'lossless', 'hires', 'jyeffect', 'sky', 'jymaster'];
+  const level = opts && LEVELS.indexOf(String(opts.level || '')) >= 0 ? String(opts.level) : '';
+  const base = 'https://music.163.com/api/song/enhance/player/url';
+  const url = level
+    ? base + '/v1?ids=%5B' + encodeURIComponent(id) + '%5D&level=' + level + '&encodeType=flac'
+    : base + '?ids=%5B' + encodeURIComponent(id) + '%5D&br=320000';
+  let data = await fetchJson(url, netHeaders(env));
+  let d = data?.data?.[0];
+  // 要了高档却没有地址（没会员/没版权）：退回 320k，别让整首播不出来
+  if (level && (!d || !d.url)) {
+    const fallback = await fetchJson(base + '?ids=%5B' + encodeURIComponent(id) + '%5D&br=320000', netHeaders(env));
+    const d2 = fallback?.data?.[0];
+    if (d2 && d2.url) {
+      return {
+        playable: true,
+        streamUrl: https(d2.url),
+        ext: d2.type || 'mp3',
+        bitrate: d2.br || null,
+        size: d2.size || null,
+        level: 'exhigh',
+        note: '要的 ' + level + ' 没给（没会员/没版权），已退回 320k',
+      };
+    }
+  }
   if (!d || !d.url) {
     return {
       playable: false,
@@ -118,6 +141,7 @@ async function neteasePlayUrl(id, env) {
     ext: d.type || 'mp3',
     bitrate: d.br || null,
     size: d.size || null,
+    level: d.level || level || '',
   };
 }
 
@@ -1017,15 +1041,16 @@ export const worker = {
         // B 站例外：它的地址认出口 IP，而且返回前还要改写成 /stream?id=…，
         // 缓存值原样返回会漏出「别的实例签的地址」→ 客户端 403（表现就是「有时有画面」）。
         const mode = (p.get('mode') || '') === 'video' ? 'video' : 'audio';
+        const level = (p.get('level') || '').trim();
         const cacheable = platform !== 'bilibili';
-        const cacheKey = platform + ':' + id + ':' + mode;
+        const cacheKey = platform + ':' + id + ':' + mode + (level ? ':' + level : '');
         const hit = cacheable ? playCache.get(cacheKey) : null;
         if (hit && Date.now() - hit.at < PLAY_CACHE_MS) {
           return json({ ok: true, data: hit.value, cached: true });
         }
 
         const quality = p.get('quality') === '1080' ? '1080' : '720';
-        const data = await impl.playurl(id, env, mode, { quality });
+        const data = await impl.playurl(id, env, mode, { quality, level });
 
         // 酷狗从 Cloudflare 出口很容易被限流，给一条能照着做的提示
         if (data && data.playable === false && /频繁|too\s*frequent/i.test(String(data.note || ''))) {

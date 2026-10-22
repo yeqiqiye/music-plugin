@@ -348,18 +348,20 @@
     var id = String((opts && opts.id) || '');
     var mode = (opts && opts.mode) === 'video' ? 'video' : 'audio';
     var quality = (opts && opts.quality) === '1080' ? '1080' : '720';
+    // 网易云音质档位：标准/较高/极高/无损/Hi-Res/环绕/沉浸/母带（借 IIROSE-MEDIA-WEB 的 8 档）
+    var level = String((opts && opts.level) || 'exhigh');
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality }, base).then(function (out) {
+      return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality, level: level }, base).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
         // 中转（没配 Cookie）拿不到 VIP 曲时，网易云再问一次公共接口，能拿到就拿到
-        if (platform === 'netease' && data.playable === false) return shadowseeSongUrl(id);
+        if (platform === 'netease' && data.playable === false) return shadowseeSongUrl(id, level);
         return data;
       }).catch(function (err) {
-        if (platform === 'netease') return shadowseeSongUrl(id);
+        if (platform === 'netease') return shadowseeSongUrl(id, level);
         throw err;
       });
     }
@@ -367,11 +369,11 @@
     if (platform !== 'netease') {
       return Promise.resolve({ playable: false, reason: 'need-relay', note: '这个平台要走中转：先配中转地址' });
     }
-    return shadowseeSongUrl(id);
+    return shadowseeSongUrl(id, level);
   }
 
-  function shadowseeSongUrl(id) {
-    return request('/song/url/v1', { id: id, level: 'standard' }).then(function (json) {
+  function shadowseeSongUrl(id, level) {
+    return request('/song/url/v1', { id: id, level: level || 'standard' }).then(function (json) {
       var d = json && json.data && json.data[0];
       if (!d || !d.url) {
         return {

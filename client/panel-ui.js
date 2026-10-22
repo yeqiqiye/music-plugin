@@ -498,9 +498,20 @@
     // 同一份设置也存 localStorage：宿主（IIROSE）读同一把 key 来决定悬浮球和手势要不要挂
     const SETTINGS_KEY = opts.settingsKey || 'mk_panel_settings';
     const ACCENTS = ['blue', 'teal', 'violet', 'pink'];
+    // 网易云音质档位（8 档，v1 接口的 level 值）
+    const NET_LEVELS = [
+      { id: 'standard', label: '标准' },
+      { id: 'higher', label: '较高' },
+      { id: 'exhigh', label: '极高' },
+      { id: 'lossless', label: '无损' },
+      { id: 'hires', label: 'Hi-Res' },
+      { id: 'jyeffect', label: '环绕' },
+      { id: 'sky', label: '沉浸' },
+      { id: 'jymaster', label: '母带' },
+    ];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, batchSummary: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, batchSummary: true, neteaseLevel: 'exhigh', bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
       lyric: true, lyricSize: 3, lyricFloat: true, lyricLock: false, lyricLines: 3, lyricW: 520,
       opacity: 1, clock: true,
@@ -527,6 +538,7 @@
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
       out.batchSummary = out.batchSummary !== false;
+      out.neteaseLevel = NET_LEVELS.some((x) => x.id === out.neteaseLevel) ? out.neteaseLevel : 'exhigh';
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
       out.bgBlur = Boolean(out.bgBlur);
@@ -868,6 +880,12 @@
             '<div class="mk-chips">' +
             chip('quality', '720', '720P') +
             chip('quality', '1080', '1080P') +
+            '</div>'
+          : '') +
+        (typeof opts.onRelayChange === 'function'
+          ? '<div class="mk-set-row"><div class="mk-meta"><b>网易云音质</b><small>无损以上要会员；拿不到会退回 320k，不会放不出来</small></div></div>' +
+            '<div class="mk-chips">' +
+            NET_LEVELS.map((lv) => chip('neteaseLevel', lv.id, lv.label)).join('') +
             '</div>'
           : '') +
         '</div>' +
@@ -1534,7 +1552,7 @@
         refreshRows();
         try {
           if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video', quality: settings.quality });
+          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video', quality: settings.quality, level: settings.neteaseLevel });
           if (!info || !info.playable || !info.streamUrl) {
             throw new Error((info && info.note) || '拿不到视频地址');
           }
@@ -1570,7 +1588,7 @@
       refreshRows();
       try {
         if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs, quality: settings.quality });
+        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs, quality: settings.quality, level: settings.neteaseLevel });
         if (!info || !info.playable) {
           const why = (info && info.note) || (info && info.reason) || '拿不到可播放地址';
           setNow(label, '⚠ ' + why + '（可用「打开」跳去平台）');
@@ -2234,6 +2252,7 @@
               id: song.id,
               mode: batchPlayAs(song),
               quality: settings.quality,
+              level: settings.neteaseLevel,
             });
           } catch (e) {
             // 网络抖一下重试一次，别让整批因为一次超时就断掉
@@ -2243,6 +2262,7 @@
               id: song.id,
               mode: batchPlayAs(song),
               quality: settings.quality,
+              level: settings.neteaseLevel,
             });
           }
           if (!info || !info.playable) throw new Error((info && info.note) || '拿不到播放地址');
@@ -2472,16 +2492,34 @@
       }
     }
 
+    /**
+     * 收尾等多久，取决于「有多确定它停了」：
+     *   · 客户端播放按钮都变回「播放」图标了 → 0.7 秒就收；
+     *   · 只是元素停了（可能在缓冲/切歌）→ 1.2 秒；
+     *   · 自然放完（下一首马上接上）→ 1.5 秒；
+     *   · 其他不确定的情况 → 2.5 秒。
+     */
+    function stopGraceMs(why) {
+      const btn = appButtonSaysPaused();
+      const playing = isPlaying(roomMediaEl);
+      if (btn === true && !playing) return 700;
+      if (why === 'cut') return 900;
+      if (!playing && roomMediaEl) return 1200;
+      if (why === 'ended') return 1500;
+      return 2500;
+    }
+
     function armStopGrace(why) {
       if (!roomNow) return;
       if (stopGrace) return; // 已经挂着倒计时了，别每轮轮询都把它重置（否则永远数不到 0）
+      const wait = stopGraceMs(why);
       stopGrace = setTimeout(() => {
         stopGrace = null;
         // 还在响 = 只是切歌时的短暂停顿，别收
         if (isPlaying(roomMediaEl)) return;
         diagTick.why = why;
         endRoomNow();
-      }, 2500);
+      }, wait);
     }
 
     function hookMedia(el) {
@@ -2772,7 +2810,7 @@
       roomMediaTimer = setInterval(() => {
         watchFrames();
         scanRoomMedia();
-      }, 1500);
+      }, 800);
       watchFrames();
       scanRoomMedia();
       setTimeout(() => {
@@ -2802,7 +2840,7 @@
         if (isPlaying(roomMediaEl)) return; // 播放器还在响
         diagTick.why = 'cut';
         endRoomNow();
-      }, 2600);
+      }, stopGraceMs('cut'));
     }
 
     function paintNow() {
