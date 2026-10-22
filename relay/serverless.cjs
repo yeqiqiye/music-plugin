@@ -581,6 +581,282 @@ function allowedAudioHost(u) {
 
 const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', kugou: 'https://www.kugou.com/' };
 
+// ------------------------------------------------------------ 表情包（搜图 + 图片代理）
+// 只做两件事：把「搜图」和「取图」都收在中转里，面板只认我们给的地址。
+// 这样：① 防盗链拿不到图的问题由中转解决；② 白名单挡住「变成开放图片代理」。
+const STICKER_HOSTS = [
+  '.doutula.com',
+  '.soutula.com',
+  '.fabiaoqing.com',
+  '.sinaimg.cn',
+  '.hdslb.com',
+  '.giphy.com',
+  '.tenor.com',
+  '.qq.com',
+  '.byteimg.com',
+  '.douyinpic.com',
+];
+
+// 脏词/18+：搜索词和结果标题都过一遍（宁可少搜，别往房间里塞不该有的东西）
+const STICKER_BLOCK = ['色情', '裸', '做爱', '约炮', '娇喘', '18禁', '黄图', '强奸', '幼女', '正太', '萝莉控', '调教'];
+
+/** 给「要发的图」签名：只有我们搜出来的 URL 才允许走代理，避免变成开放图片代理 */
+async function stickerSig(u, env) {
+  const secret = (env && env.STICKER_SECRET) || '';
+  if (!secret) return '';
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(u));
+    return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 搜狗图片：直接给 JSON，省得解析 HTML */
+async function stickerSogou(kw, page) {
+  const start = (Math.max(1, Number(page) || 1) - 1) * 48;
+  const url =
+    'https://pic.sogou.com/napi/pc/searchList?mode=1&start=' + start + '&xml_len=48&query=' + encodeURIComponent(kw);
+  const res = await fetch(url, {
+    headers: { 'user-agent': UA, referer: 'https://pic.sogou.com/' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  const items = (j && j.data && j.data.items) || [];
+  return items
+    .map((it) => ({
+      url: it.picUrl || it.oriPicUrl || it.thumbUrl || '',
+      thumb: it.thumbUrl || it.picUrl || '',
+      title: it.title || '',
+    }))
+    .filter((x) => x.url);
+}
+
+/** Bing 图片：async 接口回 HTML，murl 里是原图 */
+async function stickerBing(kw, page) {
+  const first = (Math.max(1, Number(page) || 1) - 1) * 35 + 1;
+  // 这串参数是 Bing 图片瀑布流的「异步接口」，少了 mmasync/layout 会回一个几乎空的页面
+  const url =
+    'https://www.bing.com/images/async?q=' +
+    encodeURIComponent(kw) +
+    '&first=' +
+    first +
+    '&count=35&cw=1177&ch=750&relp=35&tsc=ImageBasicHover&datsrc=N_I&layout=RowBased&mmasync=1&mkt=zh-CN&adlt=strict';
+  const res = await fetch(url, {
+    headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml', 'accept-language': 'zh-CN,zh;q=0.9' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const html = await res.text();
+  const out = [];
+  const seen = new Set();
+  const re = /murl&quot;:&quot;(https?:\/\/[^&]+?)&quot;/g;
+  let m;
+  while ((m = re.exec(html)) && out.length < 40) {
+    const u = m[1].replace(/\\\//g, '/');
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    out.push({ url: u, thumb: u, title: '' });
+  }
+  return out;
+}
+
+function allowedStickerHost(u) {
+  let parsed;
+  try {
+    parsed = new URL(u);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  const host = parsed.hostname.toLowerCase();
+  return STICKER_HOSTS.some((suffix) => host.endsWith(suffix));
+}
+
+function stickerBlocked(text) {
+  const s = String(text || '').toLowerCase();
+  return STICKER_BLOCK.some((w) => s.includes(w));
+}
+
+/** 斗图啦：搜索结果页里图片在 data-original 上 */
+async function stickerDoutula(kw) {
+  const url = 'https://www.doutula.com/search?keyword=' + encodeURIComponent(kw);
+  const res = await fetch(url, {
+    headers: { 'user-agent': UA, referer: 'https://www.doutula.com/' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const html = await res.text();
+  const out = [];
+  const re = /data-original="(https?:\/\/[^"]+)"/g;
+  let m;
+  while ((m = re.exec(html)) && out.length < 40) {
+    const u = m[1];
+    if (!/\.(gif|jpe?g|png|webp)(\?|$)/i.test(u)) continue;
+    out.push({ url: u, thumb: u, title: '' });
+  }
+  return out;
+}
+
+/** 发表情：搜索页 <img src="/uploads/..."> */
+async function stickerFabiaoqing(kw, page) {
+  const p = Math.max(1, Number(page) || 1);
+  const url =
+    'https://fabiaoqing.com/search/search/keyword/' +
+    encodeURIComponent(kw) +
+    '/type/bq/page/' +
+    p +
+    '.html';
+  const res = await fetch(url, {
+    headers: { 'user-agent': UA, referer: 'https://fabiaoqing.com/' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const html = await res.text();
+  const out = [];
+  // 实测：图在 img.soutula.com/bmiddle/xxx.gif 上（搜图啦的 CDN），不是站内 /uploads
+  const re = /(?:src|data-original)="(https?:\/\/(?:img\.)?(?:soutula|doutula)\.com\/[^"]+\.(?:gif|jpe?g|png|webp))"/gi;
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(html)) && out.length < 40) {
+    const thumb = m[1];
+    if (seen.has(thumb)) continue;
+    seen.add(thumb);
+    // bmiddle 是小图，发大图用 large（同一套路径，换目录即可）
+    const full = thumb.replace('/bmiddle/', '/large/');
+    out.push({ url: full, thumb, title: '' });
+  }
+  return out;
+}
+
+/** Giphy：要 key（环境变量 GIPHY_KEY），有就一起用 */
+async function stickerGiphy(kw, env) {
+  const key = env && env.GIPHY_KEY;
+  if (!key) return [];
+  const url =
+    'https://api.giphy.com/v1/gifs/search?api_key=' +
+    encodeURIComponent(key) +
+    '&q=' +
+    encodeURIComponent(kw) +
+    '&limit=24&rating=g&lang=zh-CN';
+  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  return (j.data || [])
+    .map((g) => {
+      const im = g.images || {};
+      const full = (im.fixed_height || im.original || {}).url || '';
+      const small = (im.fixed_height_small || im.fixed_height || {}).url || full;
+      return { url: full, thumb: small, title: g.title || '' };
+    })
+    .filter((x) => x.url);
+}
+
+async function stickerSearch({ kw, page }, env, origin) {
+  const keyword = String(kw || '').trim();
+  if (!keyword) return { ok: false, error: '缺少搜索词' };
+  if (keyword.length > 24) return { ok: false, error: '搜索词太长' };
+  if (stickerBlocked(keyword)) return { ok: false, error: '这个搜索词不给搜（内容过滤）' };
+
+  const sources = [
+    { name: 'sogou', run: () => stickerSogou(keyword, page) },
+    { name: 'bing', run: () => stickerBing(keyword, page) },
+    { name: 'doutula', run: () => stickerDoutula(keyword) },
+    { name: 'fabiaoqing', run: () => stickerFabiaoqing(keyword, page) },
+    { name: 'giphy', run: () => stickerGiphy(keyword, env) },
+  ];
+  const tried = [];
+  for (const src of sources) {
+    try {
+      const items = await src.run();
+      const clean = items
+        .filter((it) => allowedStickerHost(it.url) && !stickerBlocked(it.title))
+        .slice(0, 24);
+      tried.push({ name: src.name, ok: true, count: clean.length });
+      if (clean.length) {
+        const items = [];
+        for (const it of clean) {
+          const sig = await stickerSig(it.url, env);
+          items.push({
+            url: it.url,
+            thumb: it.thumb || it.url,
+            title: it.title || '',
+            // 发这个：走我们自己的图片代理（带签名，别人拼不出别的地址）
+            send: origin + '/sticker/img?u=' + encodeURIComponent(it.url) + (sig ? '&s=' + sig : ''),
+          });
+        }
+        return { ok: true, data: { source: src.name, keyword, items }, tried };
+      }
+    } catch (e) {
+      tried.push({ name: src.name, ok: false, error: String((e && e.message) || e) });
+    }
+  }
+  return { ok: true, data: { source: '', keyword, items: [] }, tried, note: '所有源都没结果' };
+}
+
+async function proxyStickerImage(request, target, env, sig) {
+  // 有签名且对得上 → 任意域名放行（签名只给「我们搜出来的图」）；
+  // 没配 secret 或签名不对 → 退回域名白名单，避免变成开放代理。
+  let signedOk = false;
+  if (sig && env && env.STICKER_SECRET) {
+    const expect = await stickerSig(target, env);
+    signedOk = Boolean(expect) && expect === sig;
+  }
+  if (!signedOk && !allowedStickerHost(target)) {
+    let host = '';
+    try {
+      host = new URL(String(target)).hostname;
+    } catch {
+      host = String(target).slice(0, 60);
+    }
+    return new Response('拒绝：不在图片域名白名单内（' + host + '）', { status: 403, headers: CORS });
+  }
+  // 图床大多认 Referer：发图时用「抓它的那个站点」，不是图床自己的域名
+  let referer = 'https://fabiaoqing.com/';
+  try {
+    const h = new URL(target).hostname.toLowerCase();
+    if (h.endsWith('.soutula.com') || h.endsWith('.doutula.com')) referer = 'https://fabiaoqing.com/';
+    else if (h.endsWith('.sinaimg.cn')) referer = 'https://weibo.com/';
+    else if (h.endsWith('.hdslb.com')) referer = 'https://www.bilibili.com/';
+    else referer = new URL(target).origin + '/';
+  } catch {
+    /* 用默认 referer */
+  }
+  const upstream = await fetch(target, {
+    headers: { 'user-agent': UA, referer, accept: 'image/*,*/*' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!upstream.ok) {
+    return new Response('取图失败：HTTP ' + upstream.status, { status: 502, headers: CORS });
+  }
+  const ct = upstream.headers.get('content-type') || '';
+  if (ct && !/^image\//i.test(ct)) {
+    return new Response('拒绝：不是图片（' + ct + '）', { status: 415, headers: CORS });
+  }
+  const len = Number(upstream.headers.get('content-length') || 0);
+  if (len > 3 * 1024 * 1024) {
+    return new Response('拒绝：图片超过 3MB', { status: 413, headers: CORS });
+  }
+  const buf = await upstream.arrayBuffer();
+  if (buf.byteLength > 3 * 1024 * 1024) {
+    return new Response('拒绝：图片超过 3MB', { status: 413, headers: CORS });
+  }
+  const headers = new Headers(CORS);
+  headers.set('content-type', ct || 'image/gif');
+  headers.set('content-length', String(buf.byteLength));
+  headers.set('cache-control', 'public, max-age=86400');
+  return new Response(buf, { status: 200, headers });
+}
+
+
 async function proxyAudio(request, target, platform, env, mode) {
   if (!allowedAudioHost(target)) {
     let host = '';
@@ -835,7 +1111,7 @@ const worker = {
 
     try {
       // 先判路径再判平台：不然后面「不支持的平台」会把未知路径也说成 400
-      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream', '/ffmpeg', '/lyric'];
+      const KNOWN_PATHS = ['/', '', '/health', '/search', '/playlist', '/user', '/playurl', '/stream', '/ffmpeg', '/lyric', '/sticker', '/sticker/img'];
       // /stream/xxx.mp4 这种带后缀的流地址也要放行（IIROSE 靠扩展名挑播放器）
       if (!KNOWN_PATHS.includes(url.pathname) && !url.pathname.startsWith('/stream/')) {
         return json({ ok: false, error: '未知路径：' + url.pathname }, 404);
@@ -895,8 +1171,16 @@ const worker = {
         return json({
           ok: true,
           platforms: Object.keys(PLATFORMS),
-          features: ['bilibili-video', 'html5-direct', 'stream-id'],
+          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level'],
         });
+      }
+
+      if (url.pathname === '/sticker') {
+        const out = await stickerSearch({ kw: p.get('kw'), page: p.get('page') }, env, url.origin);
+        return json(out, out.ok ? 200 : 400);
+      }
+      if (url.pathname === '/sticker/img') {
+        return proxyStickerImage(request, p.get('u') || '', env, p.get('s') || '');
       }
 
       if (!impl) return json({ ok: false, error: '不支持的平台：' + platform }, 400);

@@ -1,4 +1,4 @@
-/*! music-iirose v2.4.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.5.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -161,6 +161,20 @@
 .mk-batch span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mk-batch b{color:var(--mk-accent);font-variant-numeric:tabular-nums}
 .mk-batch .mk-btn{margin-left:auto;padding:2px 9px;font-size:11.5px;flex:none}
+/* 表情面板：网格 + 角上的收藏 / 删除 */
+.mk-sticker-bar{display:flex;gap:8px;padding:10px 16px 4px;align-items:center}
+.mk-sticker-bar .mk-input{flex:1 1 auto;min-width:0;padding:8px 11px;font-size:13px}
+.mk-sticker-sect{padding:10px 16px 0;color:var(--mk-dim);font-size:12px}
+.mk-stickers{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;padding:8px 12px 16px}
+.mk-sticker{position:relative;border:1px solid var(--mk-line);border-radius:10px;overflow:hidden;
+  background:var(--mk-raised);aspect-ratio:1/1;cursor:pointer;padding:0}
+.mk-sticker:hover{border-color:var(--mk-accent)}
+.mk-sticker img{width:100%;height:100%;object-fit:cover;display:block}
+.mk-sticker .corner{position:absolute;right:3px;top:3px;width:22px;height:22px;border-radius:7px;
+  background:rgba(8,12,18,.62);color:#fff;border:1px solid rgba(255,255,255,.18);font-size:12px;
+  line-height:20px;text-align:center;padding:0;cursor:pointer}
+.mk-sticker .corner.bottom{top:auto;bottom:3px}
+.mk-stickers-empty{padding:14px 16px;color:var(--mk-dim);font-size:12.5px;line-height:1.6}
 .mk-tab-ico{margin-right:4px;font-size:13px}
 .mk-tab{background:transparent;color:var(--mk-dim);border:1px solid transparent;border-radius:8px;
   padding:6px 12px;font-size:13px;cursor:pointer}
@@ -379,6 +393,7 @@
             <button class="mk-btn mk-ghost" data-act="queue" title="听歌列表（队列）">队列</button>
             <button class="mk-btn mk-ghost" data-act="history" title="我点过的歌（存在本机）">历史</button>
             <button class="mk-btn mk-ghost" data-act="playlists" title="我的歌单（存在本机，可一键整批点）">歌单 <span data-el="pl-count"></span></button>
+            ${typeof opts.onSticker === 'function' ? '<button class="mk-btn mk-ghost" data-act="stickers" title="表情包（网搜 + 收藏）">表情</button>' : ''}
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>
@@ -3477,6 +3492,142 @@
       setStat('历史 ' + history.length + ' 次');
     }
 
+    // ------------------------------------------------------------ 表情包（网搜 + 收藏）
+    // 图不落地：搜索走中转，发出去的是中转给的**带签名**地址（别人拼不出别的图），
+    // 这样既绕过图床防盗链，又不会把我们的中转变成开放图片代理。
+    const ST_KEY = 'mk_stickers';
+    const ST_MAX = 60;
+    const ST_GAP_MS = 2000;
+    let stickerResults = [];
+    let stickerSource = '';
+    let stickerKw = '';
+    let stickerFavs = loadStickerFavs();
+    let lastStickerAt = 0;
+
+    function loadStickerFavs() {
+      try {
+        const raw = window.localStorage.getItem(ST_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr.filter((x) => x && x.send).slice(0, ST_MAX) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function saveStickerFavs() {
+      try {
+        window.localStorage.setItem(ST_KEY, JSON.stringify(stickerFavs.slice(0, ST_MAX)));
+      } catch (e) {
+        /* 存不下就算了 */
+      }
+    }
+
+    function addStickerFav(it) {
+      if (!it || !it.send) return false;
+      if (stickerFavs.some((x) => x.send === it.send)) return false;
+      stickerFavs.unshift({ send: it.send, thumb: it.thumb || it.url || '', title: it.title || '', t: Date.now() });
+      if (stickerFavs.length > ST_MAX) stickerFavs = stickerFavs.slice(0, ST_MAX);
+      saveStickerFavs();
+      return true;
+    }
+
+    function stickerTile(it, i, kind) {
+      const img = it.thumb || it.url || '';
+      const corner =
+        kind === 'fav'
+          ? '<button class="corner" data-act="sticker-unfav" data-i="' + i + '" title="从收藏里删掉">✕</button>'
+          : '<button class="corner" data-act="sticker-fav" data-i="' + i + '" title="收藏">☆</button>';
+      return (
+        '<div class="mk-sticker" data-act="sticker-send" data-kind="' +
+        kind +
+        '" data-i="' +
+        i +
+        '" title="点一下发到房间">' +
+        '<img src="' +
+        esc(img) +
+        '" alt="" loading="lazy" referrerpolicy="no-referrer">' +
+        corner +
+        '</div>'
+      );
+    }
+
+    function renderStickers() {
+      if (!detailBack) detailBack = { list: lastResults, kind: listKind, page: page };
+      inPlaylist = false;
+      playlistCtx = null;
+      queueOpen = false;
+      const head =
+        '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">表情包</div>' +
+        '<div class="mk-sub">' +
+        esc('搜索走中转；点一张就发到房间（' + ST_GAP_MS / 1000 + ' 秒一张，防刷屏）') +
+        '</div></div><div class="mk-detail-acts"><button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+      const bar =
+        '<div class="mk-sticker-bar"><input class="mk-input" data-el="sticker-kw" placeholder="搜表情：猫 / 开心 / 无语…" value="' +
+        esc(stickerKw) +
+        '"><button class="mk-btn mk-primary" data-act="sticker-search">搜</button></div>';
+      const favHtml = stickerFavs.length
+        ? '<div class="mk-sticker-sect">收藏（' +
+          stickerFavs.length +
+          '）</div><div class="mk-stickers">' +
+          stickerFavs.map((it, i) => stickerTile(it, i, 'fav')).join('') +
+          '</div>'
+        : '';
+      const res = stickerResults.length
+        ? '<div class="mk-sticker-sect">结果' +
+          (stickerSource ? ' · 来自 ' + esc(stickerSource) : '') +
+          '（' +
+          stickerResults.length +
+          ' 张）</div><div class="mk-stickers">' +
+          stickerResults.map((it, i) => stickerTile(it, i, 'res')).join('') +
+          '</div>'
+        : '<div class="mk-stickers-empty">输个关键词搜一张试试。<br>发出去的是中转给的带签名地址，房间里直接显示图片。</div>';
+      elBody.innerHTML = head + bar + favHtml + res;
+      if (elPager && elPager.classList) elPager.classList.remove('mk-on');
+      setStat('表情包');
+    }
+
+    async function searchStickers() {
+      const input = elBody.querySelector('[data-el=sticker-kw]');
+      const kw = String((input && input.value) || '').trim();
+      if (!kw) {
+        setStat('先输个关键词');
+        return;
+      }
+      stickerKw = kw;
+      if (typeof api.sticker !== 'function') {
+        setStat('当前环境不支持表情搜索：要配中转');
+        return;
+      }
+      setStat('正在搜：' + esc(kw));
+      try {
+        const out = await api.sticker({ kw: kw, page: 1 });
+        stickerResults = (out && out.items) || [];
+        stickerSource = (out && out.source) || '';
+        renderStickers();
+        setStat(stickerResults.length ? '找到 ' + stickerResults.length + ' 张' : '没搜到，换个词试试');
+      } catch (e) {
+        setStat('搜索失败：' + esc(String((e && e.message) || e)));
+      }
+    }
+
+    async function sendSticker(it) {
+      if (!it || !it.send) return;
+      const now = Date.now();
+      if (now - lastStickerAt < ST_GAP_MS) {
+        setStat('慢一点：表情 ' + ST_GAP_MS / 1000 + ' 秒一张（防刷屏）');
+        return;
+      }
+      lastStickerAt = now;
+      try {
+        if (typeof opts.onSticker !== 'function') throw new Error('当前环境不支持发表情');
+        await opts.onSticker(it);
+        addStickerFav(it);
+        setStat('已发到房间' + (it.title ? '：' + esc(it.title) : ''));
+      } catch (e) {
+        setStat('发失败：' + esc(String((e && e.message) || e)));
+      }
+    }
+
     /** 听歌列表：本机试听 / 点播到房间都用这一份队列 */
     function renderQueue() {
       // 已经有「返回上一级」就沿用它（比如从歌单详情点开队列，返回要回到歌单列表）
@@ -3829,6 +3980,22 @@
         else if (name === 'batch-play') playAll(lastResults);
         else if (name === 'play-sel') playSelected();
         else if (name === 'batch-cancel') cancelBatch();
+        else if (name === 'stickers') renderStickers();
+        else if (name === 'sticker-search') searchStickers();
+        else if (name === 'sticker-send') {
+          const kind = act.getAttribute('data-kind');
+          const idx = Number(act.getAttribute('data-i'));
+          sendSticker(kind === 'fav' ? stickerFavs[idx] : stickerResults[idx]);
+        } else if (name === 'sticker-fav') {
+          if (addStickerFav(stickerResults[Number(act.getAttribute('data-i'))])) {
+            renderStickers();
+            setStat('已收藏这张');
+          }
+        } else if (name === 'sticker-unfav') {
+          stickerFavs.splice(Number(act.getAttribute('data-i')), 1);
+          saveStickerFavs();
+          renderStickers();
+        }
         else if (name === 'lyric-reset') {
           // 保底：不管锁在哪、拖到哪，一键回到默认位置 + 解锁 + 字号行数复位
           try {
@@ -3996,6 +4163,9 @@
       } else if (ev.key === 'Enter' && ev.target === elKw) {
         ev.preventDefault();
         doSearch();
+      } else if (ev.key === 'Enter' && ev.target && ev.target.getAttribute && ev.target.getAttribute('data-el') === 'sticker-kw') {
+        ev.preventDefault();
+        searchStickers();
       }
     });
 
@@ -4183,7 +4353,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.4.1';
+  var VERSION = '2.5.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';
@@ -5040,6 +5210,17 @@
           return (out && out.data) || null;
         });
       },
+      // 表情包：搜索也在中转里（图床防盗链 + 白名单都收在中转那侧）
+      sticker: function (opts) {
+        var base = relayBase();
+        if (!base) return Promise.reject(new Error('表情搜索要配中转'));
+        var kw = String((opts && opts.kw) || '').trim();
+        if (!kw) return Promise.reject(new Error('先输个关键词'));
+        return request('/sticker', { kw: kw, page: (opts && opts.page) || 1 }, base).then(function (out) {
+          if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+          return out.data || { items: [] };
+        });
+      },
       session: function () {
         return Promise.resolve({ platform: 'netease', loggedIn: false, nickname: null });
       },
@@ -5149,6 +5330,18 @@
         app.socket.send(JSON.stringify({ m: msg, mc: color, i: msgId() }));
         diag.framesSent += 1;
         diag.lastNotice = msg;
+      },
+      // 发一张表情：IIROSE 的图片消息就是 `{m:"<url>#e"}`（#e = 按图片渲染）
+      onSticker: function (item) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var url = String((item && item.send) || '');
+        if (!url) throw new Error('这张图没有可发地址');
+        var color = normColor(app.inputcolorhex);
+        app.socket.send(JSON.stringify({ m: url + '#e', mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastSticker = url.slice(0, 80);
+        observeRoom(app);
       },
       onSettingsChange: function (s) {
         applyEntrySettings(s);

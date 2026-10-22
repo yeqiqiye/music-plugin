@@ -96,6 +96,24 @@ function toSongs(fixture) {
 function route(url) {
   requested.push(String(url));
   const u = String(url);
+  if (u.includes('relay.example.com/sticker')) {
+    const q = new URL(u).searchParams;
+    return {
+      ok: true,
+      data: {
+        source: 'test',
+        keyword: q.get('kw') || '',
+        items: [
+          {
+            url: 'https://img.soutula.com/large/cat.gif',
+            thumb: 'https://img.soutula.com/bmiddle/cat.gif',
+            title: '猫猫',
+            send: 'https://relay.example.com/sticker/img?u=cat.gif&s=deadbeef',
+          },
+        ],
+      },
+    };
+  }
   if (u.includes('relay.example.com/search')) {
     const q = new URL(u).searchParams;
     if (q.get('platform') === 'netease') {
@@ -1076,6 +1094,37 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   const st = JSON.parse(wT.localStorage.getItem('mk_panel_settings') || '{}');
   check('重置后是解锁状态', st.lyricLock === false, String(st.lyricLock));
   check('重置后歌词是开着的', st.lyric !== false, String(st.lyric));
+}
+
+// ---------------- 19. 表情包：搜索 → 发到房间（限速）→ 自动收藏 ----------------
+{
+  panelEl.querySelector('[data-act=stickers]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(80);
+  const kwInput = panelEl.querySelector('[data-el=sticker-kw]');
+  check('表情面板有搜索框', Boolean(kwInput));
+  kwInput.value = '猫';
+  panelEl.querySelector('[data-act=sticker-search]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(120);
+  check('搜到结果并渲染成图块', panelEl.querySelectorAll('.mk-sticker').length >= 1, String(panelEl.querySelectorAll('.mk-sticker').length));
+
+  const before = sent.length;
+  panelEl.querySelector('.mk-sticker').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(120);
+  const msg = String(sent.slice(-1)[0] || '');
+  check('发出去的是图片消息（…#e）', msg.includes('#e') && msg.includes('sticker/img'), msg.slice(0, 120));
+
+  const after = sent.length;
+  panelEl.querySelector('.mk-sticker').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(80);
+  check('2 秒内连点被限速（不刷屏）', sent.length === after, 'new=' + (sent.length - after));
+
+  let favs = [];
+  try {
+    favs = JSON.parse(window.localStorage.getItem('mk_stickers') || '[]');
+  } catch (e) {
+    favs = [];
+  }
+  check('发过的自动进收藏（本机）', favs.length >= 1 && String(favs[0].send).includes('sticker/img'), JSON.stringify(favs).slice(0, 80));
 }
 
 console.log('');

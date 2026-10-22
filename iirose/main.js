@@ -874,6 +874,17 @@
           return (out && out.data) || null;
         });
       },
+      // 表情包：搜索也在中转里（图床防盗链 + 白名单都收在中转那侧）
+      sticker: function (opts) {
+        var base = relayBase();
+        if (!base) return Promise.reject(new Error('表情搜索要配中转'));
+        var kw = String((opts && opts.kw) || '').trim();
+        if (!kw) return Promise.reject(new Error('先输个关键词'));
+        return request('/sticker', { kw: kw, page: (opts && opts.page) || 1 }, base).then(function (out) {
+          if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
+          return out.data || { items: [] };
+        });
+      },
       session: function () {
         return Promise.resolve({ platform: 'netease', loggedIn: false, nickname: null });
       },
@@ -983,6 +994,18 @@
         app.socket.send(JSON.stringify({ m: msg, mc: color, i: msgId() }));
         diag.framesSent += 1;
         diag.lastNotice = msg;
+      },
+      // 发一张表情：IIROSE 的图片消息就是 `{m:"<url>#e"}`（#e = 按图片渲染）
+      onSticker: function (item) {
+        var app = locateApp();
+        if (!app || !app.socket) throw new Error('找不到房间连接：先进房间再试');
+        var url = String((item && item.send) || '');
+        if (!url) throw new Error('这张图没有可发地址');
+        var color = normColor(app.inputcolorhex);
+        app.socket.send(JSON.stringify({ m: url + '#e', mc: color, i: msgId() }));
+        diag.framesSent += 1;
+        diag.lastSticker = url.slice(0, 80);
+        observeRoom(app);
       },
       onSettingsChange: function (s) {
         applyEntrySettings(s);
