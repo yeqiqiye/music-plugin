@@ -877,6 +877,103 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   check('新帧来了照常显示下一首', nowM().includes('下一首'), nowM());
 }
 
+// ---------------- 15. 不挂 DOM 的 new Audio() 也能盯上 + 切歌指令 ----------------
+{
+  const dQ = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const wQ = dQ.window;
+  const sentQ = [];
+  wQ.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  wQ.socket = {
+    send(f) {
+      sentQ.push(f);
+    },
+    onmessage: null,
+  };
+  wQ.uid = '1';
+  vm.runInContext(code, dQ.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(120);
+  const panelQ = wQ.__MUSIC_IIROSE__.panel;
+
+  // IIROSE 的播放器很可能就是 new Audio()，压根不在 DOM 里
+  const el = new wQ.Audio('https://m1.music.126.net/x/zzz999.mp3');
+  Object.defineProperty(el, 'paused', { value: false, configurable: true });
+  Object.defineProperty(el, 'readyState', { value: 4, configurable: true });
+  wQ.socket.onmessage({
+    data: '&1://m1.music.126.net/x/zzz999.mp3>s://music.163.com/song?id=5>250>离屏播放器>@0某人>上学>2>://c.jpg>http://a.jpg>>[00:00.00]某句',
+  });
+  await tick(900);
+  const rs = panelQ.roomMedia();
+  check('new Audio()（不挂 DOM）也能被盯上', rs.hooked === true && String(rs.src).includes('zzz999'), JSON.stringify(rs).slice(0, 130));
+  check('登记的播放器数量 >= 1', rs.tracked >= 1, String(rs.tracked));
+  const nowQ = () => wQ.document.querySelector('[data-el=now]').textContent;
+
+  // 1) 切歌指令：2.6 秒内来了新帧 = 正常切歌，不能收
+  wQ.socket.send(JSON.stringify({ m: 'cut', mc: 'abc123', i: '1' }));
+  check('发出去的 cut 被认出来了', /s 前/.test(panelQ.roomMedia().lastCut) || panelQ.roomMedia().lastCut !== '', String(panelQ.roomMedia().lastCut));
+  wQ.socket.onmessage({
+    data: '&1://m1.music.126.net/x/next111.mp3>s://music.163.com/song?id=6>200>下一首>@0某人>上学>2>://c.jpg>http://a.jpg>>[00:00.00]下一句',
+  });
+  await tick(2800);
+  check('切歌后有新帧：当作正常切歌，不收', nowQ().includes('下一首'), nowQ());
+
+  // 2) 切歌指令 + 播放器真的停了 → 收
+  Object.defineProperty(el, 'paused', { value: true, configurable: true });
+  wQ.socket.send(JSON.stringify({ m: 'cut all', mc: 'abc123', i: '2' }));
+  await tick(2900);
+  check('cut all 且播放器停了 → 收掉播放信息', nowQ().includes('未在播放'), nowQ());
+  check('歌词窗也收掉', !wQ.document.querySelector('.mk-lyric-float').classList.contains('mk-on'));
+}
+
+// ---------------- 16. 播放器在 iframe 里（IIROSE 的 #mainFrame）也要能盯上 ----------------
+{
+  const dR = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const wR = dR.window;
+  wR.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  wR.socket = { send() {}, onmessage: null };
+  wR.uid = '1';
+  // 仿 IIROSE：房间跑在一个同源 iframe 里
+  const frame = wR.document.createElement('iframe');
+  frame.id = 'mainFrame';
+  wR.document.body.appendChild(frame);
+  await tick(60);
+  const fdoc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+  check('测试用 iframe 有同源 document', Boolean(fdoc));
+  const fa = fdoc.createElement('audio');
+  fa.src = 'https://m1.music.126.net/x/frame777.mp3';
+  Object.defineProperty(fa, 'paused', { value: false, configurable: true });
+  Object.defineProperty(fa, 'readyState', { value: 4, configurable: true });
+  fdoc.body.appendChild(fa);
+
+  vm.runInContext(code, dR.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(100);
+  const panelR = wR.__MUSIC_IIROSE__.panel;
+  wR.socket.onmessage({
+    data: '&1://m1.music.126.net/x/frame777.mp3>s://music.163.com/song?id=7>230>iframe里的歌>@0某人>上学>2>://c.jpg>http://a.jpg>>[00:00.00]iframe一句',
+  });
+  await tick(900);
+  const rr = panelR.roomMedia();
+  check('iframe 里的播放器被盯上了', rr.hooked === true && String(rr.src).includes('frame777'), JSON.stringify(rr).slice(0, 130));
+  check('至少盯了 2 个文档（顶页 + iframe）', rr.docs >= 2, String(rr.docs));
+
+  // 切掉：iframe 里的 audio 停了
+  Object.defineProperty(fa, 'paused', { value: true, configurable: true });
+  fa.dispatchEvent(new (frame.contentWindow.Event)('pause'));
+  await tick(2900);
+  check(
+    'iframe 里停了 → 播放信息收回',
+    wR.document.querySelector('[data-el=now]').textContent.includes('未在播放'),
+    wR.document.querySelector('[data-el=now]').textContent,
+  );
+}
+
 console.log('');
 if (failures.length) {
   console.log('结果：' + failures.length + ' 项失败 -> ' + failures.join(' / '));

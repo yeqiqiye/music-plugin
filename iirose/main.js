@@ -632,6 +632,29 @@
     } catch (e) {
       /* 忽略 */
     }
+    // 切歌是「客户端 -> 服务器」的指令，收不到回声，所以也盯一下发出去的帧：
+    // {"m":"cut",...} / {"m":"cut all",...} 都算。
+    try {
+      if (!app.socket.__mkSendHooked && typeof app.socket.send === 'function') {
+        var origSend = app.socket.send;
+        app.socket.send = function (frame) {
+          try {
+            var s = String(frame == null ? '' : frame);
+            if (s.indexOf('"cut') >= 0 && /"m"\s*:\s*"cut(\s+all)?"/.test(s)) {
+              if (panel && typeof panel.noteCut === 'function') {
+                panel.noteCut(/cut\s+all/.test(s) ? 'cut-all' : 'cut');
+              }
+            }
+          } catch (e) {
+            /* 只是顺手看一眼，绝不能影响发送 */
+          }
+          return origSend.apply(this, arguments);
+        };
+        app.socket.__mkSendHooked = true;
+      }
+    } catch (e) {
+      /* 忽略 */
+    }
     diag.socketOk = true;
   }
 

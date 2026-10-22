@@ -730,7 +730,15 @@
         if (d.instances) bits.push('脚本实例 ' + d.instances);
         if (d.gesture !== undefined) bits.push('双指上滑 ' + (d.gesture ? '已挂监听' : '已卸载监听'));
         if (d.ball !== undefined) bits.push('悬浮球 ' + (d.ball ? '显示中' : '已隐藏'));
-        if (d.media) bits.push('房间音源 ' + (d.media.hooked ? (d.media.paused ? '已盯上（暂停中）' : '已盯上') : '未找到'));
+        if (d.media) {
+          const m = d.media;
+          bits.push(
+            '房间音源 ' +
+              (m.hooked ? (m.playing ? '已盯上（在响）' : '已盯上（没在响）') : '未找到') +
+              (m.tracked ? ' · 播放器 ' + m.tracked : '') +
+              (m.lastCut ? ' · 最近切歌 ' + m.lastCut : ''),
+          );
+        }
         if (opts.relayUrl) {
           bits.push('中转 ' + String(opts.relayUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '').slice(0, 40));
         }
@@ -2393,23 +2401,68 @@
       return roomNow.startedAt + roomNow.durationMs - Date.now();
     }
 
-    // ------------------------------- 盯着房间里真正在响的那个 <audio>/<video>
+    // ------------------------------- 盯着房间里真正在响的那个播放器
     // 服务器只在「开播 / 切歌」时推 &1。你自己点 切歌 / 暂停、或者队列播完最后一句，
-    // 是没有任何报文的 —— 于是「播放信息 + 歌词」会一直挂着（你遇到的就是这个）。
-    // 所以直接盯页面上的媒体元素：pause / ended / emptied 之后给 2.5 秒宽限，
-    // 期间要是来了新帧或元素自己又 playing，就当作正常切歌；否则收掉。
+    // 是没有任何报文的 —— 于是「播放信息 + 歌词」会一直挂着。
+    //
+    // 为什么第一版没生效：IIROSE 的播放器很可能是 `new Audio()` 这种「不挂到 DOM 上」的元素，
+    // document.querySelectorAll('audio,video') 根本找不到它。所以现在从原型层面登记：
+    //   · 给 HTMLMediaElement.prototype.play / pause / src 打补丁 —— 谁响过就记下来；
+    //   · 包装 window.Audio 构造，新建的也记下来；
+    //   · 监听到 http(s) 的切歌指令（socket.send 里发出去的 "cut"）也当成一个信号。
     //
     // 为什么不用 AudioContext 去「听」音源：房间音频来自 music.126.net 这类没有 CORS 头的地址，
-    // MediaElementAudioSourceNode 接上去会变成静音（tainted），连到 destination 就把房间声音搞没了。
-    // 只用事件就够判断「还在不在放」，不碰音频图。
+    // MediaElementAudioSourceNode 接上去会被当成脏数据变静音，接回扬声器就把房间声音弄没了。
+    // 只用播放/暂停事件 + 静音判断就够，不碰音频图。
+    const mediaEls = [];
+    const mediaDocs = []; // 已经挂过监听的 document（顶页 + 同源 iframe）
     let roomMediaEl = null;
     let roomMediaTimer = null;
     let stopGrace = null;
+    let lastCutAt = 0;
+    let lastCutKind = '';
+    let frameSeq = 0; // 收到一帧就 +1：用来判断「切歌之后有没有新歌开播」
+    const diagTick = { why: '' };
+    // 尽早挂上：房间播放器可能是 new Audio()，也可能是 iframe 里创建的
+    installMediaHooks();
 
     function frameName(url) {
       const tail = String(url || '').split(/[?#]/)[0];
       const parts = tail.split('/').filter(Boolean);
       return parts.length ? parts[parts.length - 1] : '';
+    }
+
+    function mediaSrc(el) {
+      try {
+        return String((el && (el.currentSrc || el.src)) || '');
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function isPlaying(el) {
+      if (!el) return false;
+      try {
+        return !el.paused && !el.ended && (el.readyState || 0) >= 2;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    /** 像不像「房间那首歌」：名字对得上 > 音乐域 > 时长超过 30 秒（排除语音条） */
+    function looksRoomAudio(el) {
+      if (!el || el === elAudio) return false;
+      const src = mediaSrc(el);
+      if (roomNow && roomNow.src) {
+        const n = frameName(roomNow.src);
+        if (n && src && src.indexOf(n) >= 0) return true;
+      }
+      if (/music\.126\.net|bilivideo|hdslb|qqmusic|kugou|biliapi/i.test(src)) return true;
+      try {
+        return Number(el.duration) > 30;
+      } catch (e) {
+        return false;
+      }
     }
 
     function cancelStopGrace() {
@@ -2421,69 +2474,289 @@
 
     function armStopGrace(why) {
       if (!roomNow) return;
-      cancelStopGrace();
+      if (stopGrace) return; // 已经挂着倒计时了，别每轮轮询都把它重置（否则永远数不到 0）
       stopGrace = setTimeout(() => {
         stopGrace = null;
-        const el = roomMediaEl;
         // 还在响 = 只是切歌时的短暂停顿，别收
-        if (el && !el.paused && !el.ended && (el.readyState || 0) >= 2) return;
-        if (diagTick) diagTick.why = why;
+        if (isPlaying(roomMediaEl)) return;
+        diagTick.why = why;
         endRoomNow();
       }, 2500);
     }
 
-    const diagTick = { why: '' };
-
-    function hookRoomMedia(el) {
-      if (!el) return;
-      roomMediaEl = el;
-      if (el.__mkHooked) return;
-      el.__mkHooked = true;
+    function hookMedia(el) {
+      if (!el || el.__mkMediaHooked) return;
       try {
-        el.addEventListener('ended', () => armStopGrace('ended'));
-        el.addEventListener('pause', () => armStopGrace('pause'));
-        el.addEventListener('emptied', () => armStopGrace('emptied'));
+        el.__mkMediaHooked = true;
+      } catch (e) {
+        return;
+      }
+      const mine = () => el === roomMediaEl;
+      const onStop = (why) => {
+        if (mine() || !roomMediaEl) armStopGrace(why);
+      };
+      try {
+        el.addEventListener('ended', () => onStop('ended'));
+        el.addEventListener('pause', () => onStop('pause'));
+        el.addEventListener('emptied', () => onStop('emptied'));
         el.addEventListener('play', cancelStopGrace);
         el.addEventListener('playing', cancelStopGrace);
         el.addEventListener('loadstart', cancelStopGrace);
       } catch (e) {
-        /* 挂不上就退回「只按时长收」的老办法 */
+        /* 挂不上就退回「只按时长收」 */
       }
     }
 
-    /** 找这一帧对应的媒体元素：优先 url 里带同一段文件名，其次正在响的音乐域元素 */
-    function findRoomMedia(hint) {
-      let list = [];
+    function trackMedia(el) {
+      if (!el || el === elAudio) return;
+      if (mediaEls.indexOf(el) < 0) {
+        mediaEls.push(el);
+        if (mediaEls.length > 12) mediaEls.shift();
+      }
+      hookMedia(el);
+      if (looksRoomAudio(el) && el !== roomMediaEl) roomMediaEl = el;
+    }
+
+    /**
+     * 关键：IIROSE 的房间是在 iframe（#mainFrame）里跑的，播放器元素在**那个文档**里，
+     * 顶部文档的 querySelectorAll 永远找不到。所以要把同源 iframe 也一并盯上。
+     */
+    function framesNow() {
+      const out = [];
+      const push = (w) => {
+        if (w && w.document && out.indexOf(w) < 0) out.push(w);
+      };
+      push(window);
       try {
-        list = doc.querySelectorAll ? doc.querySelectorAll('audio,video') : [];
+        const mains = [doc.getElementById && doc.getElementById('mainFrame')];
+        const list = doc.querySelectorAll ? doc.querySelectorAll('iframe') : [];
+        for (let i = 0; i < list.length; i += 1) mains.push(list[i]);
+        for (let i = 0; i < mains.length; i += 1) {
+          try {
+            push(mains[i] && mains[i].contentWindow);
+          } catch (e) {
+            /* 跨域，跳过 */
+          }
+        }
       } catch (e) {
-        return null;
+        /* 忽略 */
       }
-      const name = frameName(hint);
-      let fallback = null;
-      for (let i = 0; i < list.length; i += 1) {
-        const el = list[i];
-        if (!el || el === elAudio) continue; // 本机试听那个是面板自己的 <audio>
-        const src = String(el.currentSrc || el.src || '');
-        if (!src) continue;
-        if (name && src.indexOf(name) >= 0) return el;
-        const looksMusic = /music\.126\.net|bilivideo|hdslb|qqmusic|kugou|biliapi/i.test(src);
-        if (!fallback && looksMusic && !el.paused) fallback = el;
+      return out;
+    }
+
+    /** 给某个 window 的媒体元素原型打补丁（含 new Audio() 这种不挂 DOM 的） */
+    function patchMediaProto(win) {
+      try {
+        const proto = win.HTMLMediaElement && win.HTMLMediaElement.prototype;
+        if (proto && !proto.__mkPatched) {
+          const play = proto.play;
+          const pause = proto.pause;
+          Object.defineProperty(proto, '__mkPatched', { value: true, configurable: true });
+          proto.play = function () {
+            try {
+              trackMedia(this);
+            } catch (e) {
+              /* 忽略 */
+            }
+            return play.apply(this, arguments);
+          };
+          proto.pause = function () {
+            try {
+              trackMedia(this);
+            } catch (e) {
+              /* 忽略 */
+            }
+            return pause.apply(this, arguments);
+          };
+          const desc = Object.getOwnPropertyDescriptor(proto, 'src');
+          if (desc && desc.set && desc.configurable !== false) {
+            Object.defineProperty(proto, 'src', {
+              configurable: true,
+              enumerable: desc.enumerable,
+              get: desc.get,
+              set(value) {
+                try {
+                  trackMedia(this);
+                } catch (e) {
+                  /* 忽略 */
+                }
+                return desc.set.call(this, value);
+              },
+            });
+          }
+        }
+      } catch (e) {
+        /* 打不上补丁也不致命：还有 DOM 扫描 + 时长收尾 */
       }
-      return fallback;
+      try {
+        const Native = win.Audio;
+        if (typeof Native === 'function' && !Native.__mkPatched) {
+          const Wrapped = function (src) {
+            const el = new Native(src);
+            try {
+              trackMedia(el);
+            } catch (e) {
+              /* 忽略 */
+            }
+            return el;
+          };
+          Wrapped.__mkPatched = true;
+          win.Audio = Wrapped;
+        }
+      } catch (e) {
+        /* 忽略 */
+      }
+    }
+
+    /** 盯一个 window：文档级捕获监听（媒体事件不冒泡，但捕获能收到）+ 原型补丁 */
+    function watchWindow(win) {
+      let d = null;
+      try {
+        d = win && win.document;
+      } catch (e) {
+        return;
+      }
+      if (!d || mediaDocs.indexOf(d) >= 0) return;
+      mediaDocs.push(d);
+      const onEv = (ev) => {
+        const t = ev && ev.target;
+        if (!t || t === elAudio || !t.tagName) return;
+        const tag = String(t.tagName).toUpperCase();
+        if (tag !== 'AUDIO' && tag !== 'VIDEO') return;
+        trackMedia(t);
+        const type = ev.type;
+        if (type === 'play' || type === 'playing' || type === 'loadstart') {
+          cancelStopGrace();
+          return;
+        }
+        if (type === 'pause' || type === 'ended' || type === 'emptied') {
+          if (t === roomMediaEl || !roomMediaEl) armStopGrace(type);
+        }
+      };
+      ['play', 'playing', 'pause', 'ended', 'emptied', 'loadstart'].forEach((type) => {
+        try {
+          d.addEventListener(type, onEv, true);
+        } catch (e) {
+          /* 忽略 */
+        }
+      });
+      patchMediaProto(win);
+    }
+
+    function watchFrames() {
+      const list = framesNow();
+      for (let i = 0; i < list.length; i += 1) watchWindow(list[i]);
+      return list.length;
+    }
+
+    /** 兼容旧名字：挂载时先盯一遍顶页（iframe 由 beginRoomMediaWatch 的轮询补上） */
+    function installMediaHooks() {
+      watchWindow(window);
+      watchFrames();
+    }
+
+    /** 这个元素是不是「当前这首」的播放器（没有音源地址时只能按域/时长猜，就当是） */
+    function mediaMatchesNow(el) {
+      if (!el) return false;
+      if (!roomNow || !roomNow.src) return true;
+      const name = frameName(roomNow.src);
+      if (!name) return true;
+      return mediaSrc(el).indexOf(name) >= 0;
+    }
+
+    /** 切到新歌：如果盯着的元素对不上，就换成能对上的那个；都没有就先当「不知道」 */
+    function rematchRoomMedia() {
+      const name = frameName(roomNow && roomNow.src);
+      if (!name) return;
+      if (mediaMatchesNow(roomMediaEl)) return;
+      let found = null;
+      for (let i = 0; i < mediaEls.length && !found; i += 1) {
+        if (mediaSrc(mediaEls[i]).indexOf(name) >= 0) found = mediaEls[i];
+      }
+      if (!found) {
+        for (let i = 0; i < mediaDocs.length && !found; i += 1) {
+          try {
+            const list = mediaDocs[i].querySelectorAll ? mediaDocs[i].querySelectorAll('audio,video') : [];
+            for (let j = 0; j < list.length && !found; j += 1) {
+              if (list[j] !== elAudio && mediaSrc(list[j]).indexOf(name) >= 0) found = list[j];
+            }
+          } catch (e) {
+            /* 忽略 */
+          }
+        }
+      }
+      if (found) {
+        roomMediaEl = found;
+        hookMedia(found);
+      } else {
+        roomMediaEl = null; // 新歌的播放器还没出现，别拿上一首的当准
+      }
     }
 
     function scanRoomMedia() {
       if (!roomNow) return;
-      const el = findRoomMedia(roomNow.src);
-      if (el && el !== roomMediaEl) hookRoomMedia(el);
+      const name = frameName(roomNow.src);
+      // 1) 每个文档（顶页 + 同源 iframe）里挂在 DOM 上的媒体元素
+      for (let i = 0; i < mediaDocs.length; i += 1) {
+        try {
+          const list = mediaDocs[i].querySelectorAll ? mediaDocs[i].querySelectorAll('audio,video') : [];
+          for (let j = 0; j < list.length; j += 1) trackMedia(list[j]);
+        } catch (e) {
+          /* 忽略 */
+        }
+      }
+      // 2) 之前登记过的（new Audio() 不挂 DOM 也能盯上）
+      for (let i = 0; i < mediaEls.length; i += 1) {
+        const el = mediaEls[i];
+        if (!el || el === elAudio) continue;
+        if (name && mediaSrc(el).indexOf(name) < 0) continue; // 有音源地址时只认对得上的
+        if (!looksRoomAudio(el)) continue;
+        if (el === roomMediaEl) continue;
+        roomMediaEl = el;
+        hookMedia(el);
+      }
+      // 3) 认准的那个要是已经停了，走宽限（别拿上一首的僵尸元素误判）
+      if (mediaMatchesNow(roomMediaEl) && !isPlaying(roomMediaEl)) armStopGrace('poll');
     }
 
     function beginRoomMediaWatch() {
       if (roomMediaTimer) return;
-      roomMediaTimer = setInterval(scanRoomMedia, 1500);
+      installMediaHooks();
+      // iframe 可能后建/重建：轮询时同时补挂监听
+      roomMediaTimer = setInterval(() => {
+        watchFrames();
+        scanRoomMedia();
+      }, 1500);
+      watchFrames();
       scanRoomMedia();
-      setTimeout(scanRoomMedia, 800);
+      setTimeout(() => {
+        watchFrames();
+        scanRoomMedia();
+      }, 600);
+      setTimeout(() => {
+        watchFrames();
+        scanRoomMedia();
+      }, 1800);
+    }
+
+    /**
+     * 宿主看到「切歌」指令（socket 往服务器发的 cut / cut all）时调这里。
+     * 规则：2.6 秒内没有新的开播帧、播放器也没在响 → 当作停播。
+     */
+    function noteRoomCut(kind) {
+      lastCutAt = Date.now();
+      lastCutKind = kind || 'cut';
+      cancelStopGrace();
+      const at = lastCutAt;
+      const seq = frameSeq;
+      setTimeout(() => {
+        if (lastCutAt !== at) return; // 又切了一次，交给后面那次
+        if (frameSeq !== seq) return; // 切完有新帧 = 正常切歌，别收
+        if (roomNow && roomNow.startedAt > at + 50) return;
+        if (isPlaying(roomMediaEl)) return; // 播放器还在响
+        diagTick.why = 'cut';
+        endRoomNow();
+      }, 2600);
     }
 
     function paintNow() {
@@ -2539,6 +2812,7 @@
       // 点播时先按「我发出去的这一刻」预判；真正的开播帧到了再对齐一次（房间起播有 1-3 秒延迟，
       // 不对齐的话歌词会跑在房间前面）
       const fromFrame = !info || info.predicted !== true;
+      if (fromFrame) frameSeq += 1;
       roomNow = {
         title,
         sub: (info && info.sub) || (same ? prev.sub : '') || '',
@@ -2555,6 +2829,7 @@
       writeNow(roomNow);
       cancelStopGrace(); // 新的一帧来了：刚才那个 pause/ended 就是切歌，不是停播
       beginRoomMediaWatch();
+      rematchRoomMedia();
       setTimeout(scanRoomMedia, 900);
       if (same && prev.predicted && fromFrame) {
         // 真的开播了：把歌词时间轴也对齐过来
@@ -3697,14 +3972,20 @@
       },
       /** 房间那边的歌放完了 / 被切走了（宿主可以显式调） */
       clearRoomNow: () => endRoomNow(),
-      /** 诊断：现在盯的是哪个媒体元素、有没有在响 */
+      /** 诊断：现在盯的是哪个播放器、有没有在响 */
       roomMedia: () => ({
         hooked: Boolean(roomMediaEl),
         paused: roomMediaEl ? Boolean(roomMediaEl.paused) : null,
-        src: roomMediaEl ? String(roomMediaEl.currentSrc || roomMediaEl.src || '').slice(0, 120) : '',
-        grace: Boolean(stopGrace),
+        playing: isPlaying(roomMediaEl),
+        src: roomMediaEl ? mediaSrc(roomMediaEl).slice(0, 120) : '',
+        tracked: mediaEls.length,
+        trackedPlaying: mediaEls.filter((el) => isPlaying(el)).length,
+        docs: mediaDocs.length,
+        lastCut: lastCutAt ? Math.round((Date.now() - lastCutAt) / 1000) + 's 前' : '',
         why: diagTick.why || '',
       }),
+      /** 宿主监听到「切歌指令」时调（socket 发出去的 cut / cut all） */
+      noteCut: (kind) => noteRoomCut(kind),
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
       /** 整批点歌（给测试 / 诊断用；房间模式下就是上面那套节流发送） */
