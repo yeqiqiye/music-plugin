@@ -613,6 +613,8 @@
               durationMs: Math.round((Number(media.d) || 0) * 1000),
               artists: roomArtist ? [roomArtist] : [],
               lrc: media.lrc || '',
+              // 音源地址：面板拿去和页面上的 <audio>/<video> 对上，用来判断「还在不在放」
+              src: media.s || '',
               platform: where.platform,
               id: where.id,
               startedAt: Date.now(),
@@ -842,11 +844,18 @@
       },
       // 设置页底部那行「诊断」：能看出是不是有旧脚本还在跑、手势到底挂没挂
       diagnostics: function () {
+        var media = null;
+        try {
+          media = panel && panel.roomMedia ? panel.roomMedia() : null;
+        } catch (e) {
+          media = null;
+        }
         return {
           version: VERSION,
           instances: diag.instances,
           gesture: gestureOn,
           ball: !(ballEl && ballEl.style && ballEl.style.display === 'none'),
+          media: media,
         };
       },
       // 面板里直接改中转地址（不用 F12，也不用记 localStorage 的 key）

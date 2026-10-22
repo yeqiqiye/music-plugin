@@ -816,6 +816,67 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   check('顶栏歌单按钮上的计数跟着清空', (panelEl.querySelector('[data-el=pl-count]').textContent || '') === '');
 }
 
+// ---------------- 14. 切歌 / 暂停后歌词要收：盯房间那个 <audio> ----------------
+{
+  const dM = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const wM = dM.window;
+  wM.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  wM.socket = { send() {}, onmessage: null };
+  wM.uid = '1';
+  // 假装房间里已经有一个在响的 <audio>（IIROSE 播放器就是这么干的）
+  const roomAudio = wM.document.createElement('audio');
+  roomAudio.src = 'https://m1.music.126.net/x/abc123.mp3';
+  Object.defineProperty(roomAudio, 'paused', { value: false, configurable: true });
+  Object.defineProperty(roomAudio, 'readyState', { value: 4, configurable: true });
+  wM.document.body.appendChild(roomAudio);
+  wM.localStorage.setItem(
+    'mk_room_now',
+    JSON.stringify({
+      title: '要切掉的歌',
+      artists: ['某人'],
+      startedAt: Date.now() - 5000,
+      durationMs: 250000,
+      platform: '',
+      id: '',
+      src: '//m1.music.126.net/x/abc123.mp3',
+      lrc: '[00:00.00]第一句\n[00:05.00]第二句',
+    }),
+  );
+  vm.runInContext(code, dM.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(120);
+  const panelM = wM.__MUSIC_IIROSE__.panel;
+  check('认出了房间里那个 <audio>', panelM.roomMedia().hooked === true, JSON.stringify(panelM.roomMedia()).slice(0, 90));
+  const nowM = () => wM.document.querySelector('[data-el=now]').textContent;
+  const lyM = wM.document.querySelector('.mk-lyric-float');
+  check('一开始在显示歌词', Boolean(lyM) && lyM.classList.contains('mk-on'), lyM && lyM.className);
+
+  // 用户点了切歌 / 暂停：元素被 pause，且没有新帧
+  Object.defineProperty(roomAudio, 'paused', { value: true, configurable: true });
+  roomAudio.dispatchEvent(new wM.Event('pause'));
+  await tick(400);
+  check('刚暂停时不立刻收（给切歌留宽限）', nowM().includes('要切掉的歌'), nowM());
+  await tick(2600);
+  check('2.5 秒后没收到的确停了：播放信息收回', nowM().includes('未在播放'), nowM());
+  check('歌词窗一起收掉（不再挂着）', !lyM.classList.contains('mk-on'), lyM.className);
+  check('localStorage 里的记录也清了', wM.localStorage.getItem('mk_room_now') === null);
+
+  // 正常切歌不该被误杀：帧来了就取消宽限
+  wM.localStorage.setItem(
+    'mk_room_now',
+    JSON.stringify({
+      title: '下一首', artists: [], startedAt: Date.now(), durationMs: 250000,
+      platform: '', id: '', src: '//m1.music.126.net/x/def456.mp3', lrc: '[00:00.00]新的一句',
+    }),
+  );
+  wM.socket.onmessage({ data: '&1://m1.music.126.net/x/def456.mp3>s://music.163.com/song?id=9>250>下一首>@0某人>上学>2>://c.jpg>http://a.jpg>>[00:00.00]新的一句' });
+  await tick(300);
+  check('新帧来了照常显示下一首', nowM().includes('下一首'), nowM());
+}
+
 console.log('');
 if (failures.length) {
   console.log('结果：' + failures.length + ' 项失败 -> ' + failures.join(' / '));

@@ -730,6 +730,7 @@
         if (d.instances) bits.push('脚本实例 ' + d.instances);
         if (d.gesture !== undefined) bits.push('双指上滑 ' + (d.gesture ? '已挂监听' : '已卸载监听'));
         if (d.ball !== undefined) bits.push('悬浮球 ' + (d.ball ? '显示中' : '已隐藏'));
+        if (d.media) bits.push('房间音源 ' + (d.media.hooked ? (d.media.paused ? '已盯上（暂停中）' : '已盯上') : '未找到'));
         if (opts.relayUrl) {
           bits.push('中转 ' + String(opts.relayUrl).replace(/^https?:\/\//, '').replace(/\/+$/, '').slice(0, 40));
         }
@@ -2392,6 +2393,99 @@
       return roomNow.startedAt + roomNow.durationMs - Date.now();
     }
 
+    // ------------------------------- 盯着房间里真正在响的那个 <audio>/<video>
+    // 服务器只在「开播 / 切歌」时推 &1。你自己点 切歌 / 暂停、或者队列播完最后一句，
+    // 是没有任何报文的 —— 于是「播放信息 + 歌词」会一直挂着（你遇到的就是这个）。
+    // 所以直接盯页面上的媒体元素：pause / ended / emptied 之后给 2.5 秒宽限，
+    // 期间要是来了新帧或元素自己又 playing，就当作正常切歌；否则收掉。
+    //
+    // 为什么不用 AudioContext 去「听」音源：房间音频来自 music.126.net 这类没有 CORS 头的地址，
+    // MediaElementAudioSourceNode 接上去会变成静音（tainted），连到 destination 就把房间声音搞没了。
+    // 只用事件就够判断「还在不在放」，不碰音频图。
+    let roomMediaEl = null;
+    let roomMediaTimer = null;
+    let stopGrace = null;
+
+    function frameName(url) {
+      const tail = String(url || '').split(/[?#]/)[0];
+      const parts = tail.split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : '';
+    }
+
+    function cancelStopGrace() {
+      if (stopGrace) {
+        clearTimeout(stopGrace);
+        stopGrace = null;
+      }
+    }
+
+    function armStopGrace(why) {
+      if (!roomNow) return;
+      cancelStopGrace();
+      stopGrace = setTimeout(() => {
+        stopGrace = null;
+        const el = roomMediaEl;
+        // 还在响 = 只是切歌时的短暂停顿，别收
+        if (el && !el.paused && !el.ended && (el.readyState || 0) >= 2) return;
+        if (diagTick) diagTick.why = why;
+        endRoomNow();
+      }, 2500);
+    }
+
+    const diagTick = { why: '' };
+
+    function hookRoomMedia(el) {
+      if (!el) return;
+      roomMediaEl = el;
+      if (el.__mkHooked) return;
+      el.__mkHooked = true;
+      try {
+        el.addEventListener('ended', () => armStopGrace('ended'));
+        el.addEventListener('pause', () => armStopGrace('pause'));
+        el.addEventListener('emptied', () => armStopGrace('emptied'));
+        el.addEventListener('play', cancelStopGrace);
+        el.addEventListener('playing', cancelStopGrace);
+        el.addEventListener('loadstart', cancelStopGrace);
+      } catch (e) {
+        /* 挂不上就退回「只按时长收」的老办法 */
+      }
+    }
+
+    /** 找这一帧对应的媒体元素：优先 url 里带同一段文件名，其次正在响的音乐域元素 */
+    function findRoomMedia(hint) {
+      let list = [];
+      try {
+        list = doc.querySelectorAll ? doc.querySelectorAll('audio,video') : [];
+      } catch (e) {
+        return null;
+      }
+      const name = frameName(hint);
+      let fallback = null;
+      for (let i = 0; i < list.length; i += 1) {
+        const el = list[i];
+        if (!el || el === elAudio) continue; // 本机试听那个是面板自己的 <audio>
+        const src = String(el.currentSrc || el.src || '');
+        if (!src) continue;
+        if (name && src.indexOf(name) >= 0) return el;
+        const looksMusic = /music\.126\.net|bilivideo|hdslb|qqmusic|kugou|biliapi/i.test(src);
+        if (!fallback && looksMusic && !el.paused) fallback = el;
+      }
+      return fallback;
+    }
+
+    function scanRoomMedia() {
+      if (!roomNow) return;
+      const el = findRoomMedia(roomNow.src);
+      if (el && el !== roomMediaEl) hookRoomMedia(el);
+    }
+
+    function beginRoomMediaWatch() {
+      if (roomMediaTimer) return;
+      roomMediaTimer = setInterval(scanRoomMedia, 1500);
+      scanRoomMedia();
+      setTimeout(scanRoomMedia, 800);
+    }
+
     function paintNow() {
       // 本机试听时这块归本机播放器，别让房间那首一直盖着
       if (playMode !== 'room') return;
@@ -2455,9 +2549,13 @@
         platform: (info && info.platform) || (same ? prev.platform : '') || '',
         id: (info && info.id) || (same ? prev.id : '') || '',
         lrc: (info && info.lrc) || (same ? prev.lrc : '') || '',
+        src: (info && info.src) || (same ? prev.src : '') || '',
         predicted: same ? Boolean(prev.predicted && !fromFrame) : !fromFrame,
       };
       writeNow(roomNow);
+      cancelStopGrace(); // 新的一帧来了：刚才那个 pause/ended 就是切歌，不是停播
+      beginRoomMediaWatch();
+      setTimeout(scanRoomMedia, 900);
       if (same && prev.predicted && fromFrame) {
         // 真的开播了：把歌词时间轴也对齐过来
         lyricT0 = roomNow.startedAt;
@@ -2477,10 +2575,11 @@
       return roomNow;
     }
 
-    /** 放完了（或房间清空了）：收起播放信息 + 歌词 */
+    /** 放完了（或房间清空了 / 被切掉了）：收起播放信息 + 歌词 */
     function endRoomNow() {
       roomNow = null;
       stopNowTicker();
+      cancelStopGrace();
       writeNow(null);
       if (playMode === 'room') {
         setNow('未在播放', '点结果里的 ▶ 开始');
@@ -3505,6 +3604,11 @@
         clockTimer = null;
       }
       stopNowTicker();
+      cancelStopGrace();
+      if (roomMediaTimer) {
+        clearInterval(roomMediaTimer);
+        roomMediaTimer = null;
+      }
       if (lyricTimer) {
         clearInterval(lyricTimer);
         lyricTimer = null;
@@ -3560,6 +3664,7 @@
       if (playMode !== 'room') return;
       paintNow();
       startNowTicker();
+      beginRoomMediaWatch(); // 刷新后也要盯：不然用户切歌了这边还挂着歌词
       if (saved.lrc) loadLyricFromText(saved);
       else if (saved.platform && saved.id) startLyric(saved, saved.startedAt);
     })();
@@ -3592,6 +3697,14 @@
       },
       /** 房间那边的歌放完了 / 被切走了（宿主可以显式调） */
       clearRoomNow: () => endRoomNow(),
+      /** 诊断：现在盯的是哪个媒体元素、有没有在响 */
+      roomMedia: () => ({
+        hooked: Boolean(roomMediaEl),
+        paused: roomMediaEl ? Boolean(roomMediaEl.paused) : null,
+        src: roomMediaEl ? String(roomMediaEl.currentSrc || roomMediaEl.src || '').slice(0, 120) : '',
+        grace: Boolean(stopGrace),
+        why: diagTick.why || '',
+      }),
       // 给外面的测试/诊断用
       play: (song) => playSong(song || lastResults[0]),
       /** 整批点歌（给测试 / 诊断用；房间模式下就是上面那套节流发送） */
