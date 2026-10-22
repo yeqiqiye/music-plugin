@@ -124,6 +124,24 @@ check('每行都有封面位（没有封面就显示占位）', rootEl.querySele
 check('歌单详情里有勾选框', rootEl.querySelectorAll('.mk-song .mk-sel').length === 2);
 check('不再有 10/20/30 条选择器', !rootEl.querySelector('[data-el=limit]'));
 
+// ---- 收藏到本机歌单 ----
+const savePlBtn = rootEl.querySelector('[data-act=pl-save]');
+check('歌单头有「收藏」按钮', Boolean(savePlBtn) && /收藏/.test(savePlBtn.textContent));
+savePlBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+let localPls = [];
+try {
+  localPls = JSON.parse(window.localStorage.getItem('mk_playlists') || '[]');
+} catch {
+  localPls = [];
+}
+check(
+  '收藏后本机多了一个歌单',
+  Array.isArray(localPls) && localPls.length === 1 && localPls[0].songs.length === 2,
+  JSON.stringify(localPls).slice(0, 80),
+);
+check('顶栏歌单按钮带计数', String(rootEl.querySelector('[data-el=pl-count]').textContent) === '1', rootEl.querySelector('[data-el=pl-count]').textContent);
+
 // ---- 多选 + 点选中的 ----
 const boxes = rootEl.querySelectorAll('.mk-song .mk-sel');
 boxes[0].checked = true;
@@ -152,6 +170,17 @@ check('清空后队列为空', /队列是空的/.test(rootEl.querySelector('.mk-
 rootEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await tick();
 check('返回后回到歌单列表', rootEl.querySelectorAll('.mk-entity').length === 2);
+
+// ---- 歌单页：打开刚收藏的本机歌单 ----
+rootEl.querySelector('[data-act=playlists]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+check('歌单页列出 1 个歌单', rootEl.querySelectorAll('.mk-song').length === 1, String(rootEl.querySelectorAll('.mk-song').length));
+rootEl.querySelector('[data-act=pl-open]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+check('打开本机歌单后能看到 2 首', rootEl.querySelectorAll('.mk-song').length === 2);
+rootEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+check('从本机歌单返回回到「我的歌单」', /我的歌单/.test(rootEl.querySelector('.mk-body').textContent));
 
 // ---- 搜用户 → 用户歌单 ----
 rootEl.querySelectorAll('.mk-scope')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

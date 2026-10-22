@@ -1,4 +1,4 @@
-/*! music-iirose v2.0.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.1.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -303,6 +303,10 @@
     box-shadow:0 20px 60px rgba(0,0,0,.5)}
   .mk-root[data-theme=light] .mk-card{box-shadow:0 20px 60px rgba(20,32,52,.2)}
   .mk-head{cursor:move;cursor:grab;touch-action:none;padding:14px 12px 10px;gap:8px}
+  /* 顶栏按钮多了一个「歌单」，手机上排不下就换行，别把 ✕ 挤出去 */
+  .mk-head{flex-wrap:wrap}
+  .mk-right{flex-wrap:wrap;justify-content:flex-end;gap:6px;margin-left:auto}
+  .mk-right .mk-btn{padding:6px 10px;font-size:12px}
   .mk-head:active{cursor:grabbing}
   .mk-title{font-size:15px}
   .mk-title small{display:none}
@@ -374,6 +378,7 @@
           <div class="mk-right">
             <button class="mk-btn mk-ghost" data-act="queue" title="听歌列表（队列）">队列</button>
             <button class="mk-btn mk-ghost" data-act="history" title="我点过的歌（存在本机）">历史</button>
+            <button class="mk-btn mk-ghost" data-act="playlists" title="我的歌单（存在本机，可一键整批点）">歌单 <span data-el="pl-count"></span></button>
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>
@@ -1841,7 +1846,8 @@
         '</div></div>' +
         '<div class="mk-detail-acts">' +
         (songs.length
-          ? '<button class="mk-btn" data-act="sel-all">全选</button>' +
+          ? '<button class="mk-btn" data-act="pl-save" title="存到本机，以后一键整批点">收藏</button>' +
+            '<button class="mk-btn" data-act="sel-all">全选</button>' +
             '<button class="mk-btn mk-primary" data-act="batch-play">全部点歌（' + songs.length + '）</button>' +
             '<button class="mk-btn" data-act="play-sel">点选中的（' + selected.size + '）</button>'
           : '') +
@@ -1918,10 +1924,223 @@
       if (!detailBack) return;
       const back = detailBack;
       detailBack = null;
+      // 从「我的歌单」里点进来的，返回要回到歌单列表，而不是搜索结果
+      if (back.to === 'playlists') {
+        renderPlaylists();
+        return;
+      }
       page = back.page || 1;
       renderList(back.list, back.kind, labelOf(current) + ' · ' + (back.list || []).length + ' 条');
       renderPager();
       setStat('已返回搜索结果');
+    }
+
+    // ------------------------------------------------------------ 我的歌单（本机）
+    // 存的是「歌单快照」：名字 + 歌（够点歌用），不联网、不上传。
+    // 干两件事：把远端歌单收藏成自己的；把点歌历史打包成歌单。
+    const PL_KEY = 'mk_playlists';
+    const PL_MAX = 30;
+    const PL_SONGS_MAX = 500;
+
+    function loadPlaylists() {
+      try {
+        const raw = window.localStorage.getItem(PL_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return (Array.isArray(arr) ? arr : []).filter((p) => p && p.id && Array.isArray(p.songs)).slice(0, PL_MAX);
+      } catch (e) {
+        return [];
+      }
+    }
+
+    let localPlaylists = loadPlaylists();
+    paintPlCount();
+
+    function paintPlCount() {
+      const badge = $('[data-el=pl-count]');
+      if (badge) badge.textContent = localPlaylists.length ? String(localPlaylists.length) : '';
+    }
+
+    function savePlaylists() {
+      try {
+        window.localStorage.setItem(PL_KEY, JSON.stringify(localPlaylists.slice(0, PL_MAX)));
+      } catch (e) {
+        setStat('存不下（浏览器约 5MB）：删几个旧歌单再试');
+      }
+      paintPlCount();
+    }
+
+    /** 只留下点歌需要的字段，省空间（歌手最多 3 个） */
+    function songLite(s) {
+      return {
+        platform: s.platform,
+        id: String(s.id),
+        title: s.title || '',
+        artists: (s.artists || []).slice(0, 3),
+        album: s.album || '',
+        durationMs: Number(s.durationMs) || 0,
+        cover: s.cover || '',
+        url: s.url || '',
+      };
+    }
+
+    function songsDuration(list) {
+      return (list || []).reduce((n, s) => n + (Number(s.durationMs) || 0), 0);
+    }
+
+    function fmtMinutes(ms) {
+      if (!ms) return '';
+      const min = ms / 60000;
+      return (min >= 10 ? Math.round(min) : min.toFixed(1)) + ' 分钟';
+    }
+
+    /** 收藏 / 更新一个歌单；同一个远端歌单重复收藏就是更新 */
+    function upsertPlaylist(meta) {
+      const name = String(meta.name || '未命名歌单').trim().slice(0, 40) || '未命名歌单';
+      const songs = (meta.songs || []).filter((s) => s && s.id).slice(0, PL_SONGS_MAX).map(songLite);
+      if (!songs.length) {
+        setStat('这个歌单里没有可存的歌');
+        return null;
+      }
+      const same = meta.sourceId
+        ? localPlaylists.find((p) => p.sourceId && p.sourceId === meta.sourceId)
+        : null;
+      if (same) {
+        same.name = name;
+        same.songs = songs;
+        same.t = Date.now();
+        if (meta.cover) same.cover = meta.cover;
+        savePlaylists();
+        return same;
+      }
+      const item = {
+        id: 'pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name,
+        cover: meta.cover || '',
+        platform: meta.platform || '',
+        sourceId: meta.sourceId || '',
+        songs,
+        t: Date.now(),
+      };
+      localPlaylists.unshift(item);
+      if (localPlaylists.length > PL_MAX) localPlaylists = localPlaylists.slice(0, PL_MAX);
+      savePlaylists();
+      return item;
+    }
+
+    function renderPlaylists() {
+      if (!detailBack) detailBack = { list: lastResults, kind: listKind, page: page };
+      inPlaylist = false;
+      playlistCtx = null;
+      queueOpen = false;
+      const rows = localPlaylists.length
+        ? localPlaylists
+            .map((p, i) => {
+              const sub = [p.songs.length + ' 首', fmtMinutes(songsDuration(p.songs)), fmtWhen(p.t) + ' 存']
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                '<div class="mk-song mk-clickable" data-act="pl-open" data-i="' +
+                i +
+                '">' +
+                '<button class="mk-play" data-act="pl-play" data-i="' +
+                i +
+                '" title="整批点这个歌单">▶</button>' +
+                coverOf(p.cover, '♪') +
+                '<div class="mk-meta"><div class="mk-name">' +
+                esc(p.name) +
+                '</div><div class="mk-sub">' +
+                esc(sub) +
+                '</div></div>' +
+                '<div class="mk-acts"><button data-act="pl-del" data-i="' +
+                i +
+                '" title="从本机删掉这个歌单">✕</button></div></div>'
+              );
+            })
+            .join('')
+        : '<div class="mk-empty">还没有收藏的歌单。<br>① 范围选「歌单」搜一个 → 点进去 → 顶部「收藏」；<br>② 或者「历史」页里点「存成歌单」，把点过的歌打包。</div>';
+      const head =
+        '<div class="mk-detail-head"><div class="mk-meta"><div class="mk-name">我的歌单</div>' +
+        '<div class="mk-sub">' +
+        esc('共 ' + localPlaylists.length + ' 个 · 存在本机，不联网') +
+        '</div></div><div class="mk-detail-acts">' +
+        '<button class="mk-btn" data-act="hist-to-pl">从历史建歌单</button>' +
+        '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
+      elBody.innerHTML = head + rows;
+      if (elPager && elPager.classList) elPager.classList.remove('mk-on');
+      setStat('我的歌单 ' + localPlaylists.length + ' 个');
+    }
+
+    /** 打开本机歌单：用和远端歌单一样的详情页（全选 / 全部点歌 / 点选中的都可用） */
+    function openLocalPlaylist(i) {
+      const p = localPlaylists[i];
+      if (!p) return;
+      detailBack = { list: lastResults, kind: listKind, page: page, to: 'playlists' };
+      inPlaylist = false;
+      lastResults = p.songs.slice();
+      lastLimit = Math.max(1, lastResults.length);
+      page = 1;
+      playlistCtx = {
+        songs: lastResults,
+        pl: { name: p.name, cover: p.cover, creator: '本机收藏' },
+      };
+      selected.clear();
+      renderPlaylistDetail();
+      if (elPager && elPager.classList) elPager.classList.remove('mk-on');
+      setStat('「' + esc(p.name) + '」· ' + p.songs.length + ' 首');
+    }
+
+    function deleteLocalPlaylist(i) {
+      const p = localPlaylists[i];
+      if (!p) return;
+      localPlaylists.splice(i, 1);
+      savePlaylists();
+      renderPlaylists();
+      setStat('已删除歌单「' + p.name + '」');
+    }
+
+    /** 把当前打开的远端歌单收藏到本机 */
+    function savePlaylistCtx() {
+      const ctx = playlistCtx;
+      if (!ctx) return null;
+      const pl = ctx.pl || {};
+      const item = upsertPlaylist({
+        name: pl.name || '未命名歌单',
+        cover: pl.cover || '',
+        platform: current,
+        sourceId: pl.id ? current + ':' + pl.id : '',
+        songs: ctx.songs,
+      });
+      if (item) {
+        setStat('已收藏「' + item.name + '」· ' + item.songs.length + ' 首（存在本机）');
+        renderPlaylistDetail();
+      }
+      return item;
+    }
+
+    /** 把点歌历史打包成歌单（历史本来就按歌去重过） */
+    function historyToPlaylist() {
+      if (!history.length) {
+        setStat('历史还是空的，先点几首');
+        return null;
+      }
+      const songs = history.map((h) => ({
+        platform: h.platform,
+        id: h.id,
+        title: h.title,
+        artists: h.artists || [],
+        durationMs: h.durationMs || 0,
+        cover: h.cover || '',
+      }));
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, '0');
+      const name = '历史 ' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' · ' + songs.length + ' 首';
+      // sourceId 固定：同一天再点「存成歌单」是更新，不会存出一堆「历史 xx」
+      const item = upsertPlaylist({ name, songs, sourceId: 'history' });
+      if (item) {
+        setStat('已把 ' + songs.length + ' 首歌存成歌单「' + item.name + '」');
+        renderPlaylists();
+      }
+      return item;
     }
 
     // ------------------------------------------------ 一次性点多首（房间模式）
@@ -2737,6 +2956,7 @@
         '<div class="mk-sub">' +
         esc('共 ' + history.length + ' 次 · 最近 7 天 ' + weekCount + ' 次 · 只存本机') +
         '</div></div><div class="mk-detail-acts">' +
+        (history.length ? '<button class="mk-btn" data-act="hist-to-pl">存成歌单</button>' : '') +
         (history.length ? '<button class="mk-btn" data-act="hist-clear">清空</button>' : '') +
         '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
       elBody.innerHTML = head + rows;
@@ -3099,6 +3319,14 @@
         else if (name === 'sel-all') toggleSelectAll();
         else if (name === 'queue') renderQueue();
         else if (name === 'history') renderHistory();
+        else if (name === 'playlists') renderPlaylists();
+        else if (name === 'pl-open') openLocalPlaylist(Number(act.getAttribute('data-i')));
+        else if (name === 'pl-play') {
+          const plp = localPlaylists[Number(act.getAttribute('data-i'))];
+          if (plp) playAll(plp.songs);
+        } else if (name === 'pl-del') deleteLocalPlaylist(Number(act.getAttribute('data-i')));
+        else if (name === 'pl-save') savePlaylistCtx();
+        else if (name === 'hist-to-pl') historyToPlaylist();
         else if (name === 'hist-clear') {
           history = [];
           saveHistory();
@@ -3399,7 +3627,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.0.0';
+  var VERSION = '2.1.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';

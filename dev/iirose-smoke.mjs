@@ -767,6 +767,55 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   check('取消时确实只发了几首', mediaCount() - before13 < 8, 'sent ' + (mediaCount() - before13));
 }
 
+// ---------------- 13. 我的歌单：从历史建、打开、整批点、删除 ----------------
+{
+  const media = () => sent.filter((f) => String(f).startsWith('&1')).length;
+  // 从历史建一个歌单
+  panelEl.querySelector('[data-act=history]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  const toPl = panelEl.querySelector('[data-act=hist-to-pl]');
+  check('历史页有「存成歌单」按钮', Boolean(toPl));
+  toPl.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(90);
+  let saved = [];
+  try {
+    saved = JSON.parse(window.localStorage.getItem('mk_playlists') || '[]');
+  } catch (e) {
+    saved = [];
+  }
+  check(
+    '生成了一个本机歌单（带歌）',
+    Array.isArray(saved) && saved.length === 1 && saved[0].songs.length > 0 && /历史/.test(saved[0].name),
+    JSON.stringify(saved).slice(0, 80),
+  );
+
+  // 歌单页
+  panelEl.querySelector('[data-act=playlists]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  const plBody = panelEl.querySelector('[data-el=body]').textContent;
+  check('歌单页列出这个歌单', /我的歌单/.test(plBody) && plBody.includes(saved[0].name), plBody.slice(0, 60));
+
+  // 打开 → 全部点歌（房间模式应当真的发帧）
+  panelEl.querySelector('[data-act=pl-open]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(70);
+  check('打开本机歌单能看到歌', panelEl.querySelectorAll('.mk-song').length > 0, String(panelEl.querySelectorAll('.mk-song').length));
+  const beforePl = media();
+  panelEl.querySelector('[data-act=batch-play]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(200);
+  check('本机歌单也能整批点（真的往房间发）', media() > beforePl, 'sent ' + (media() - beforePl));
+  panelEl.querySelector('[data-act=batch-cancel]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+
+  // 返回 → 删除
+  panelEl.querySelector('[data-act=back]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  check('从本机歌单返回落在歌单列表（不是搜索结果）', /我的歌单/.test(panelEl.querySelector('[data-el=body]').textContent));
+  panelEl.querySelector('[data-act=pl-del]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  check('删除后本机没有歌单了', JSON.parse(window.localStorage.getItem('mk_playlists') || '[]').length === 0);
+  check('顶栏歌单按钮上的计数跟着清空', (panelEl.querySelector('[data-el=pl-count]').textContent || '') === '');
+}
+
 console.log('');
 if (failures.length) {
   console.log('结果：' + failures.length + ' 项失败 -> ' + failures.join(' / '));
