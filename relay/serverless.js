@@ -564,6 +564,9 @@ const AUDIO_HOSTS = [
   '.mountaintoys.cn',
   '.kugou.com',
   '.music.126.net',
+  // QQ 音乐：aqqmusic.tc.qq.com / dl.stream.qqmusic.qq.com 这些（vkey 可能绑出口 IP，所以要能走代理）
+  '.tc.qq.com',
+  '.qqmusic.qq.com',
 ];
 
 function allowedAudioHost(u) {
@@ -578,7 +581,7 @@ function allowedAudioHost(u) {
   return AUDIO_HOSTS.some((suffix) => host.endsWith(suffix));
 }
 
-const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', kugou: 'https://www.kugou.com/' };
+const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', kugou: 'https://www.kugou.com/', qq: 'https://y.qq.com/' };
 
 // ------------------------------------------------------------ 表情包（搜图 + 图片代理）
 // 只做两件事：把「搜图」和「取图」都收在中转里，面板只认我们给的地址。
@@ -1061,7 +1064,8 @@ async function qqPlayUrl(id, env) {
     referer: 'https://y.qq.com/',
     cookie,
   });
-  const info = data?.req_0?.data?.midurlinfo?.[0];
+  const infos = data?.req_0?.data?.midurlinfo || [];
+  const info = infos.find((x) => x && x.purl) || null;
   const sip = (data?.req_0?.data?.sip || [])[0] || 'https://dl.stream.qqmusic.qq.com/';
   if (!info || !info.purl) {
     return {
