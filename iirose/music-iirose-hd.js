@@ -1,4 +1,4 @@
-/*! music-iirose v2.3.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.4.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -4105,7 +4105,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.3.0';
+  var VERSION = '2.4.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
@@ -4512,7 +4512,7 @@
    *
    * B 站视频换了标记：数据帧用 `!3`、卡片用 `*3`；音频仍是各平台标记（B 站音频 =0）。
    */
-  function buildFrames(song, info, app) {
+  function buildFrames(song, info, app, lyrics) {
     var color = normColor(app && app.inputcolorhex);
     var artist = (song.artists || []).join(' & ');
     var cover = https(song.cover || '');
@@ -4535,7 +4535,8 @@
         r: artist,
         b: mark,
         o: link.slice(4),
-        l: null,
+        // 整段 LRC：房间自带的歌词面板靠它同步（没歌词就 null，跟以前一样）
+        l: lyrics ? String(lyrics) : null,
       });
 
     // 标题/歌手要做实体转义；封面和颜色**不能**转义 —— 封面里的 / 会被转成 &#x2F;，
@@ -4551,24 +4552,76 @@
     return [media, JSON.stringify(payload)];
   }
 
+  /**
+   * 房间歌词：IIROSE 客户端会读 `&1` 帧里的 `l` 字段（整段 LRC），
+   * 有它就按时间轴滚自己的歌词面板 —— 这才是「音词同步」的正路
+   * （别的插件 IIROSE-MEDIA-WEB 也是这么干的：l: lyrics）。
+   * 有译文时合成一行 `[时间] 原文 | 译文`，跟它一样的格式。
+   */
+  function mergeLrcForRoom(lrc, tlrc) {
+    var raw = String(lrc || '').trim();
+    if (!raw) return '';
+    var tr = String(tlrc || '').trim();
+    if (!tr) return raw;
+    var key = function (s) {
+      var m = /\[(\d{1,2}):(\d{2})[.:](\d{1,3})\]/.exec(s);
+      if (!m) return '';
+      var cs = Math.round(Number('0.' + m[3]) * 100);
+      return m[1] + ':' + m[2] + ':' + ('0' + cs).slice(-2);
+    };
+    var map = {};
+    tr.split(/\r?\n/).forEach(function (line) {
+      var k = key(line);
+      if (!k) return;
+      map[k] = line.replace(/\[[^\]]*\]/g, '').trim();
+    });
+    var out = [];
+    raw.split(/\r?\n/).forEach(function (line) {
+      var k = key(line);
+      var text = line.replace(/\[[^\]]*\]/g, '').trim();
+      if (!k || !text) return;
+      var t = map[k];
+      out.push('[' + line.slice(1, line.indexOf(']')) + '] ' + text + (t ? ' | ' + t : ''));
+    });
+    return out.length ? out.join('\n') : raw;
+  }
+
+  function lyricForRoom(platform, id) {
+    var base = relayBase();
+    // 目前只有网易云给歌词（中转对其它平台直接回空），别白跑一趟
+    if (!base || !id || platform !== 'netease') return Promise.resolve('');
+    return request('/lyric', { platform: platform, id: id }, base)
+      .then(function (out) {
+        var d = (out && out.data) || {};
+        return mergeLrcForRoom(d.lrc, d.tlrc);
+      })
+      .catch(function () {
+        return '';
+      });
+  }
+
   function enqueue(song, info) {
     var app = locateApp();
     if (!app || !app.socket) {
       throw new Error('找不到房间连接：请先进房间并确认已登录（F5 之后再试）');
     }
-    var frames = buildFrames(song, info, app);
-    // 先发媒体数据（入队/播放），再发卡片；设置里关掉「发送点播卡片」时只发前者
-    app.socket.send(frames[0]);
-    diag.framesSent += 1;
-    var withCard = readSettings().card !== false;
-    if (withCard) {
-      app.socket.send(frames[1]);
+    // 先把歌词拿到手：整段 LRC 塞进 &1 的 l 字段，房间自带的歌词面板就能对上拍
+    return lyricForRoom(song.platform, song.id).then(function (lrc) {
+      var frames = buildFrames(song, info, app, lrc);
+      // 先发媒体数据（入队/播放），再发卡片；设置里关掉「发送点播卡片」时只发前者
+      app.socket.send(frames[0]);
       diag.framesSent += 1;
-    }
-    diag.lastCard = withCard;
-    diag.lastEnqueue = song.title + (song.artists && song.artists.length ? ' - ' + song.artists[0] : '');
-    observeRoom(app);
-    return { frames: frames, app: app };
+      var withCard = readSettings().card !== false;
+      if (withCard) {
+        app.socket.send(frames[1]);
+        diag.framesSent += 1;
+      }
+      diag.lastCard = withCard;
+      diag.lastLyric = lrc ? lrc.length : 0;
+      diag.lastEnqueue = song.title + (song.artists && song.artists.length ? ' - ' + song.artists[0] : '');
+      observeRoom(app);
+      return { frames: frames, app: app, lyric: lrc };
+    });
   }
 
   /** 复制兜底指令：房间不让点播时，用户自己粘到聊天框，交给 IIROSE 自己的解析器 */
@@ -4607,6 +4660,7 @@
     framesSent: 0,
     lastError: null,
     lastEnqueue: null,
+    lastLyric: 0,
     lastNotice: null,
     roomNow: null,
     api: null,

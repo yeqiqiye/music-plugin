@@ -284,7 +284,16 @@ if (media) {
   check('r 是歌手', media.r === '周杰伦', String(media.r));
   check('b 标成网易云（@0）', media.b === '@0', String(media.b));
   check('o 是歌曲页链接', media.o === 's://music.163.com/song?id=1901371647', String(media.o));
-  check('l 是 null（不带歌词）', media.l === null, JSON.stringify(media.l));
+  check(
+    'l 带上整段 LRC（房间自带歌词面板靠它同步）',
+    typeof media.l === 'string' && media.l.startsWith('[00:00.50]') && media.l.indexOf('\n') > 0,
+    JSON.stringify(media.l),
+  );
+  check(
+    '有译文时合成 `原文 | 译文`（和 IIROSE-MEDIA-WEB 同款格式）',
+    typeof media.l === 'string' && media.l.includes('晴天 歌词 | sunny line'),
+    JSON.stringify(media.l).slice(0, 80),
+  );
 }
 
 let card = null;
