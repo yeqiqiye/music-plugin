@@ -90,7 +90,7 @@ CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
 在 IIROSE 里：设置 →「引用 JS 脚本文件链接」→ 粘一行（多个脚本一行一个）：
 
 ```
-https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v2.2.2/iirose/music-iirose.js
+https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v2.2.3/iirose/music-iirose.js
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，

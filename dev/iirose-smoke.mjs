@@ -974,6 +974,51 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   );
 }
 
+// ---------------- 17. 认准客户端自己的 #radioPlayer / #radioPlayButton ----------------
+{
+  const dS = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const wS = dS.window;
+  wS.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  wS.socket = { send() {}, onmessage: null };
+  wS.uid = '1';
+  // 仿 IIROSE 客户端：房间播放器叫 #radioPlayer（src 是个 blob:，名字对不上帧），旁边有 #radioPlayButton
+  const rp = wS.document.createElement('audio');
+  rp.id = 'radioPlayer';
+  rp.src = 'blob:https://iirose.com/1a2b3c';
+  Object.defineProperty(rp, 'paused', { value: false, configurable: true });
+  Object.defineProperty(rp, 'readyState', { value: 4, configurable: true });
+  wS.document.body.appendChild(rp);
+  const btn = wS.document.createElement('button');
+  btn.id = 'radioPlayButton';
+  btn.className = 'mdi-pause';
+  wS.document.body.appendChild(btn);
+
+  vm.runInContext(code, dS.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(120);
+  const panelS = wS.__MUSIC_IIROSE__.panel;
+  wS.socket.onmessage({
+    data: '&1://m1.music.126.net/x/blob888.mp3>s://music.163.com/song?id=8>240>blob播放器>@0某人>上学>2>://c.jpg>http://a.jpg>>[00:00.00]blob一句',
+  });
+  await tick(900);
+  const rs2 = panelS.roomMedia();
+  check('按 #radioPlayer 认播放器（src 对不上帧也认）', rs2.hooked === true && String(rs2.src).includes('blob:'), JSON.stringify(rs2).slice(0, 120));
+
+  // 客户端暂停：按钮变回 play + 元素 paused
+  Object.defineProperty(rp, 'paused', { value: true, configurable: true });
+  btn.className = 'mdi-play';
+  rp.dispatchEvent(new wS.Event('pause'));
+  await tick(2900);
+  check(
+    '#radioPlayer 停了 → 播放信息收回',
+    wS.document.querySelector('[data-el=now]').textContent.includes('未在播放'),
+    wS.document.querySelector('[data-el=now]').textContent,
+  );
+}
+
 console.log('');
 if (failures.length) {
   console.log('结果：' + failures.length + ' 项失败 -> ' + failures.join(' / '));

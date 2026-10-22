@@ -2693,9 +2693,53 @@
       }
     }
 
+    /**
+     * IIROSE 客户端自己的房间播放器在 DOM 里是有名字的（别的插件也是这么用的）：
+     *   #radioPlayer      —— 真正在响的元素（audio / video）
+     *   #radioPlayButton  —— 旁边的播放/暂停按钮，class 在 mdi-pause / mdi-play 之间切
+     * 所以优先认这两个，比按域名/时长猜可靠得多。
+     */
+    function appPlayerEl() {
+      for (let i = 0; i < mediaDocs.length; i += 1) {
+        try {
+          const d = mediaDocs[i];
+          const el = d.getElementById ? d.getElementById('radioPlayer') : null;
+          if (!el) continue;
+          const tag = String(el.tagName || '').toUpperCase();
+          if (tag === 'AUDIO' || tag === 'VIDEO') return el;
+        } catch (e) {
+          /* 忽略 */
+        }
+      }
+      return null;
+    }
+
+    /** true = 按钮显示「该播了」（也就是现在没在播）；null = 找不到按钮 */
+    function appButtonSaysPaused() {
+      for (let i = 0; i < mediaDocs.length; i += 1) {
+        try {
+          const b = mediaDocs[i].getElementById ? mediaDocs[i].getElementById('radioPlayButton') : null;
+          if (!b) continue;
+          const cls = String(b.className || '');
+          if (cls.indexOf('mdi-pause') >= 0) return false;
+          if (cls.indexOf('mdi-play') >= 0) return true;
+          return null;
+        } catch (e) {
+          /* 忽略 */
+        }
+      }
+      return null;
+    }
+
     function scanRoomMedia() {
       if (!roomNow) return;
       const name = frameName(roomNow.src);
+      // 0) 客户端自己的播放器：#radioPlayer —— 有就优先认它
+      const appEl = appPlayerEl();
+      if (appEl) {
+        hookMedia(appEl);
+        if (appEl !== roomMediaEl) roomMediaEl = appEl;
+      }
       // 1) 每个文档（顶页 + 同源 iframe）里挂在 DOM 上的媒体元素
       for (let i = 0; i < mediaDocs.length; i += 1) {
         try {
@@ -2709,7 +2753,7 @@
       for (let i = 0; i < mediaEls.length; i += 1) {
         const el = mediaEls[i];
         if (!el || el === elAudio) continue;
-        if (name && mediaSrc(el).indexOf(name) < 0) continue; // 有音源地址时只认对得上的
+        if (!appEl && name && mediaSrc(el).indexOf(name) < 0) continue; // 有音源地址时只认对得上的
         if (!looksRoomAudio(el)) continue;
         if (el === roomMediaEl) continue;
         roomMediaEl = el;
@@ -2717,6 +2761,8 @@
       }
       // 3) 认准的那个要是已经停了，走宽限（别拿上一首的僵尸元素误判）
       if (mediaMatchesNow(roomMediaEl) && !isPlaying(roomMediaEl)) armStopGrace('poll');
+      // 4) 客户端的播放按钮已经是「play」（说明暂停/停了）
+      else if (appEl && appButtonSaysPaused() === true) armStopGrace('btn');
     }
 
     function beginRoomMediaWatch() {
