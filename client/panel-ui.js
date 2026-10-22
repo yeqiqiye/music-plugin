@@ -392,7 +392,6 @@
             <button class="mk-btn mk-ghost" data-act="queue" title="听歌列表（队列）">队列</button>
             <button class="mk-btn mk-ghost" data-act="history" title="我点过的歌（存在本机）">历史</button>
             <button class="mk-btn mk-ghost" data-act="playlists" title="我的歌单（存在本机，可一键整批点）">歌单 <span data-el="pl-count"></span></button>
-            ${typeof opts.onSticker === 'function' ? '<button class="mk-btn mk-ghost" data-act="stickers" title="表情包（网搜 + 收藏）">表情</button>' : ''}
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>

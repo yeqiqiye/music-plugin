@@ -1,4 +1,4 @@
-/*! music-iirose v2.5.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.6.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -393,7 +393,6 @@
             <button class="mk-btn mk-ghost" data-act="queue" title="听歌列表（队列）">队列</button>
             <button class="mk-btn mk-ghost" data-act="history" title="我点过的歌（存在本机）">历史</button>
             <button class="mk-btn mk-ghost" data-act="playlists" title="我的歌单（存在本机，可一键整批点）">歌单 <span data-el="pl-count"></span></button>
-            ${typeof opts.onSticker === 'function' ? '<button class="mk-btn mk-ghost" data-act="stickers" title="表情包（网搜 + 收藏）">表情</button>' : ''}
             ${opts.modeSwitch ? '<button class="mk-btn" data-act="mode" title="切换：点播到房间 / 只在本机听">点播到房间</button>' : ''}
             ${opts.hideLogin ? '' : '<button class="mk-btn" data-act="login">登录</button>'}
             <button class="mk-btn mk-ghost" data-act="settings" title="设置">⚙</button>
@@ -4353,7 +4352,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.5.0';
+  var VERSION = '2.6.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';
