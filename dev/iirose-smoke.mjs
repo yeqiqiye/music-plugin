@@ -856,6 +856,56 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   check('顶栏歌单按钮上的计数跟着清空', (panelEl.querySelector('[data-el=pl-count]').textContent || '') === '');
 }
 
+// ---------------- 13b. 歌单导出 / 导入（v3.0.0） ----------------
+{
+  const panelApi = window.__MUSIC_IIROSE__.panel;
+  const pl = panelEl;
+  // 先造一个歌单（历史建单在上一段已删掉，这里直接导入一份）
+  const sample = JSON.stringify({
+    app: 'music-plugin',
+    kind: 'playlists',
+    version: 1,
+    playlists: [
+      {
+        name: '导入测试',
+        songs: [
+          { platform: 'netease', id: '1901371647', title: '晴天', artists: ['周杰伦'], durationMs: 278961, cover: 'https://p3.music.126.net/cover-abc.jpg' },
+          { platform: 'netease', id: '186016', title: '七里香', artists: ['周杰伦'], durationMs: 299000 },
+        ],
+      },
+    ],
+  });
+  const res = panelApi.importPlaylists(sample);
+  check('导入一份歌单', res.ok === true && res.added === 1 && res.songs === 2, JSON.stringify(res));
+  const again = panelApi.importPlaylists(sample);
+  check('同名同曲再导一次算重复，跳过', again.ok === true && again.added === 0 && again.skipped === 1, JSON.stringify(again));
+  const bad = panelApi.importPlaylists('not json');
+  check('坏 JSON 被拒绝（不炸面板）', bad.ok === false && bad.why === 'json', JSON.stringify(bad));
+
+  const text = panelApi.exportPlaylists();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    parsed = null;
+  }
+  check('导出是可解析的 JSON（带 app/version/playlists）', Boolean(parsed) && parsed.app === 'music-plugin' && parsed.version === 1 && parsed.playlists.length === 1, String(text).slice(0, 60));
+  check('导出的歌只保留点歌需要的字段', Boolean(parsed) && parsed.playlists[0].songs[0].platform === 'netease' && !('vip' in parsed.playlists[0].songs[0]), JSON.stringify(parsed && parsed.playlists[0].songs[0]).slice(0, 80));
+
+  // 用导出的内容再导一次：同名同曲 → 跳过
+  const round = panelApi.importPlaylists(text);
+  check('导出再导入不会重复', round.added === 0 && round.skipped === 1, JSON.stringify(round));
+
+  // 歌单页有导出/导入两个按钮
+  pl.querySelector('[data-act=playlists]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  check('歌单页有「导出」「导入」按钮', Boolean(pl.querySelector('[data-act=pl-export]')) && Boolean(pl.querySelector('[data-act=pl-import]')));
+  check('导入用的文件选择框是 hidden', Boolean(pl.querySelector('[data-el=pl-file][hidden]')));
+  // 清掉，别影响后面的用例
+  pl.querySelector('[data-act=pl-del]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(40);
+}
+
 // ---------------- 14. 切歌 / 暂停后歌词要收：盯房间那个 <audio> ----------------
 {
   const dM = new JSDOM('<!doctype html><html><head></head><body></body></html>', {

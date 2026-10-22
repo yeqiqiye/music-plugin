@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.7.0';
+  var VERSION = '3.0.0';
   var LS = {
     relay: 'mk_iirose_relay',
     favs: 'mk_stickers',

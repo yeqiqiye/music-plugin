@@ -1,4 +1,4 @@
-/*! music-iirose v2.7.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v3.0.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -2160,6 +2160,9 @@
         '<div class="mk-sub">' +
         esc('共 ' + localPlaylists.length + ' 个 · 存在本机，不联网') +
         '</div></div><div class="mk-detail-acts">' +
+        '<button class="mk-btn" data-act="pl-export" title="导出成 JSON 文件，换电脑/换浏览器再导入">导出</button>' +
+        '<button class="mk-btn" data-act="pl-import" title="从导出的 JSON 文件合并进来">导入</button>' +
+        '<input type="file" data-el="pl-file" accept=".json,application/json" hidden>' +
         '<button class="mk-btn" data-act="hist-to-pl">从历史建歌单</button>' +
         '<button class="mk-btn" data-act="back">‹ 返回</button></div></div>';
       elBody.innerHTML = head + rows;
@@ -2193,6 +2196,137 @@
       savePlaylists();
       renderPlaylists();
       setStat('已删除歌单「' + p.name + '」');
+    }
+
+    // ---------------- 歌单导出 / 导入（换浏览器、换电脑不丢） ----------------
+    function copyText(text) {
+      return new Promise((resolve) => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => resolve(true), () => resolve(false));
+            return;
+          }
+        } catch (e) { /* 老浏览器没有剪贴板 */ }
+        resolve(false);
+      });
+    }
+
+    function playlistsPayload() {
+      return {
+        app: 'music-plugin',
+        kind: 'playlists',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        playlists: localPlaylists.map((p) => ({
+          name: p.name,
+          cover: p.cover || '',
+          platform: p.platform || '',
+          sourceId: p.sourceId || '',
+          t: p.t || Date.now(),
+          songs: (p.songs || []).map(songLite),
+        })),
+      };
+    }
+
+    /** 导出：优先存成 .json 文件，浏览器不让下载就退回剪贴板 */
+    function exportPlaylists() {
+      if (!localPlaylists.length) {
+        setStat('还没有歌单可导出');
+        return '';
+      }
+      const text = JSON.stringify(playlistsPayload(), null, 2);
+      const name = 'music-playlists-' + new Date().toISOString().slice(0, 10) + '.json';
+      let ok = false;
+      try {
+        const url = global.URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+        const a = doc.createElement('a');
+        a.href = url;
+        a.download = name;
+        doc.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => {
+          try { global.URL.revokeObjectURL(url); } catch (e) { /* 忽略 */ }
+        }, 5000);
+        ok = true;
+      } catch (e) {
+        ok = false;
+      }
+      if (ok) {
+        setStat('已导出 ' + localPlaylists.length + ' 个歌单（' + name + '）');
+      } else {
+        copyText(text).then((done) => setStat(done ? '浏览器不让下载：JSON 已复制到剪贴板' : '导出失败：请换浏览器再试'));
+      }
+      return text;
+    }
+
+    function readFileText(file) {
+      return new Promise((resolve, reject) => {
+        if (file && typeof file.text === 'function') {
+          file.text().then(resolve, reject);
+          return;
+        }
+        try {
+          const fr = new global.FileReader();
+          fr.onload = () => resolve(String(fr.result || ''));
+          fr.onerror = () => reject(new Error('读取失败'));
+          fr.readAsText(file);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+
+    /** 导入：合并进本机（同名且曲目完全一样视为重复，跳过） */
+    function importPlaylists(text) {
+      let data = null;
+      try {
+        data = JSON.parse(String(text || ''));
+      } catch (e) {
+        setStat('导入失败：不是合法的 JSON 文件');
+        return { ok: false, why: 'json', added: 0, songs: 0, skipped: 0 };
+      }
+      const arr = Array.isArray(data) ? data : data && Array.isArray(data.playlists) ? data.playlists : null;
+      if (!arr) {
+        setStat('导入失败：文件里没有 playlists 列表');
+        return { ok: false, why: 'shape', added: 0, songs: 0, skipped: 0 };
+      }
+      const sigOf = (list) => list.map((s) => s.platform + ':' + s.id).join(',');
+      let added = 0;
+      let songs = 0;
+      let skipped = 0;
+      for (const raw of arr.slice(0, PL_MAX)) {
+        const list = ((raw && raw.songs) || []).filter((s) => s && s.id);
+        if (!list.length) continue;
+        const name = String((raw && raw.name) || '').trim();
+        const sig = sigOf(list);
+        const dup = localPlaylists.some((p) => p.name === name && sigOf(p.songs) === sig);
+        if (dup) {
+          skipped += 1;
+          continue;
+        }
+        const item = upsertPlaylist({
+          name,
+          cover: raw.cover,
+          platform: raw.platform,
+          sourceId: raw.sourceId,
+          songs: list,
+        });
+        if (item) {
+          added += 1;
+          songs += item.songs.length;
+        }
+      }
+      savePlaylists();
+      setStat(
+        added
+          ? '导入 ' + added + ' 个歌单 · ' + songs + ' 首' + (skipped ? '（跳过 ' + skipped + ' 个重复的）' : '')
+          : skipped
+            ? '本机已经有这些歌单了（跳过 ' + skipped + ' 个）'
+            : '文件里没有可导入的歌',
+      );
+      if (added) renderPlaylists();
+      return { ok: true, added, songs, skipped };
     }
 
     /** 把当前打开的远端歌单收藏到本机 */
@@ -4081,6 +4215,11 @@
         } else if (name === 'pl-del') deleteLocalPlaylist(Number(act.getAttribute('data-i')));
         else if (name === 'pl-save') savePlaylistCtx();
         else if (name === 'hist-to-pl') historyToPlaylist();
+        else if (name === 'pl-export') exportPlaylists();
+        else if (name === 'pl-import') {
+          const inp = $('[data-el=pl-file]');
+          if (inp) inp.click();
+        }
         else if (name === 'hist-clear') {
           history = [];
           saveHistory();
@@ -4199,6 +4338,20 @@
         openBgEditor(dataUrl, { fresh: true });
       } catch (err) {
         setStat('背景图失败：' + esc(String((err && err.message) || err)));
+      }
+    });
+
+    root.addEventListener('change', async (ev) => {
+      const t = ev.target;
+      if (!t || !t.matches || !t.matches('[data-el=pl-file]')) return;
+      const file = t.files && t.files[0];
+      t.value = '';
+      if (!file) return;
+      try {
+        const text = await readFileText(file);
+        importPlaylists(text);
+      } catch (err) {
+        setStat('读取文件失败：' + esc(String((err && err.message) || err)));
       }
     });
 
@@ -4377,6 +4530,8 @@
       /** 整批点歌（给测试 / 诊断用；房间模式下就是上面那套节流发送） */
       playAll: (list) => playAll(list && list.length ? list : lastResults),
       batchState: () => (batchToken ? { running: true } : { running: false }),
+      exportPlaylists: () => exportPlaylists(),
+      importPlaylists: (text) => importPlaylists(text),
       queue: () => playQueue.slice(),
       results: () => lastResults.slice(),
       state: playerState,
@@ -4406,7 +4561,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.7.0';
+  var VERSION = '3.0.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';

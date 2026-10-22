@@ -11,6 +11,11 @@
 
 IIROSE 版只需要一个 https 链接，**不需要装任何东西、不需要服务器**：→ [docs/iirose.md](docs/iirose.md)
 
+![点歌台面板](docs/img/panel.png)
+
+> 这张是仓库里 `docs/demo/index.html` 的真实截图（`node dev/shots.mjs` 重拍）：加载的是真的
+> `iirose/music-iirose.js`，只是把房间连接和中转换成了假数据 —— 点开就能看交互，不用装脚本。
+
 ---
 
 ## DSH 版
@@ -80,7 +85,11 @@ node dev/smoke-client.mjs         # 假 DOM 跑真实 client.js：Alt+T、面板
 node dev/panel-jsdom.mjs          # 真 DOM（需 npm i -D jsdom；没装会自跳过）
 node dev/iirose-smoke.mjs         # 真 DOM 跑 IIROSE 版：点播两帧逐字段断言
 node dev/server.mjs               # 本地起 3098，浏览器开 /selftest 看逐项自检
+node dev/shots.mjs                # 重拍文档截图 docs/img/*.png（本机 Chrome/Edge 的 headless）
 ```
+
+想要「不用装脚本也能看面板」：直接打开 [`docs/demo/index.html`](docs/demo/index.html) ——
+它加载的是构建产物 `iirose/music-iirose.js`，把 socket 和 relay 换成了假数据。
 
 两个产物都是**提交进仓库**的（jsDelivr 只认仓库里的文件），所以改完源码必须重新构建；
 CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
@@ -90,7 +99,7 @@ CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
 在 IIROSE 里：设置 →「引用 JS 脚本文件链接」→ 粘一行（多个脚本一行一个）：
 
 ```
-https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v2.7.0/iirose/music-iirose.js
+https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.0/iirose/music-iirose.js
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>点歌台 · 面板预览（假数据）</title>
+<style>
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(1200px 600px at 20% -10%, #1b2637 0%, #0b0f14 60%) #0b0f14;
+    color: #8ea0b5;
+    font: 15px/1.75 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    padding: 34px 26px 60px;
+  }
+  .doc { max-width: 720px; }
+  h1 { margin: 0 0 6px; font-size: 22px; color: #dfe9f5; letter-spacing: .3px; }
+  p { margin: 8px 0; }
+  code { background: #16202c; border: 1px solid #223041; border-radius: 5px; padding: 1px 5px; font-size: 13px; color: #a9c4e4; }
+  ul { margin: 10px 0 0; padding-left: 20px; }
+  li { margin: 4px 0; }
+  .tag { display: inline-block; font-size: 12px; color: #79c9a4; border: 1px solid #2c5f4c; border-radius: 999px; padding: 0 9px; margin-left: 8px; vertical-align: 2px; }
+  kbd { background: #16202c; border: 1px solid #2a3a4d; border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-size: 12px; color: #c6d6e8; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>点歌台 · 面板预览<span class="tag">假数据</span></h1>
+  <p>这一页加载的是仓库里<strong>真实的</strong> <code>iirose/music-iirose.js</code>，只是把「房间连接」和「中转换行」换成了假数据：
+     搜出来的是占位歌，封面是按色相生成的渐变图，点播不会真的发到任何房间。</p>
+  <p>用途只有两个：给没装脚本的人看长什么样；以及给文档出截图。</p>
+  <ul>
+    <li>面板已经自动打开（跟按了 <kbd>Alt</kbd>+<kbd>T</kbd> 一样），搜索框里是「周杰伦」的结果；</li>
+    <li>第一首已经点过 ▶，所以「正在播放」条上有封面，面板顶部那层模糊背景也是那张封面；</li>
+    <li>歌词窗是浮在页面上的，可以拖动 / 调字号 / 锁定，跟真实环境一致。</li>
+  </ul>
+  <p style="color:#5d6f85;font-size:13px;margin-top:18px">关闭面板：<kbd>Esc</kbd> 或再按一次 <kbd>Alt</kbd>+<kbd>T</kbd>。</p>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+ * 假环境：房间 socket / uid / 中转地址 / fetch
+ * 真机上这些都由 IIROSE 页面提供，这里只为让面板能跑起来。
+ * ------------------------------------------------------------------ */
+window.__sent = [];
+window.socket = {
+  send(frame) {
+    window.__sent.push(frame);
+  },
+  onmessage: null,
+};
+window.uid = '688829143194';
+window.inputcolorhex = '#ff9800';
+const QUERY = new URLSearchParams(location.search);
+try {
+  // 文档截图默认用深色主题（headless Chrome 默认是浅色）
+  window.localStorage.setItem('mk_panel_settings', JSON.stringify({ theme: QUERY.get('theme') || 'dark', accent: 'blue', coverBg: true }));
+  window.localStorage.setItem('mk_iirose_relay', 'https://relay.example.com');
+  window.localStorage.removeItem('mk_playlists');
+  window.localStorage.removeItem('mk_room_now');
+} catch (e) { /* 隐私模式下可能不让写，不影响预览 */ }
+
+/** 按色相生成一张 160×160 的渐变封面（data URI，不联网） */
+function cover(i) {
+  const hue = (i * 37 + 200) % 360;
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160">' +
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+    '<stop offset="0" stop-color="hsl(' + hue + ',72%,58%)"/>' +
+    '<stop offset="1" stop-color="hsl(' + ((hue + 48) % 360) + ',65%,32%)"/>' +
+    '</linearGradient></defs>' +
+    '<rect width="160" height="160" fill="url(#g)"/>' +
+    '<text x="80" y="100" font-size="58" text-anchor="middle" fill="rgba(255,255,255,.85)" font-family="sans-serif">♪</text>' +
+    '</svg>';
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
+const TITLES = [
+  ['晴天', '周杰伦', '叶惠美', 278961, false],
+  ['七里香', '周杰伦', '七里香', 299000, false],
+  ['夜曲', '周杰伦', '十一月的萧邦', 250000, false],
+  ['稻香', '周杰伦', '魔杰座', 223000, false],
+  ['青花瓷', '周杰伦', '我很忙', 236000, true],
+  ['告白气球', '周杰伦', '周杰伦的床边故事', 215000, false],
+  ['简单爱', '周杰伦', '范特西', 269000, false],
+  ['龙卷风', '周杰伦', 'Jay', 241000, false],
+  ['以父之名', '周杰伦', '叶惠美', 342000, false],
+  ['东风破', '周杰伦', '叶惠美', 315000, false],
+  ['发如雪', '周杰伦', '十一月的萧邦', 294000, false],
+  ['千里之外', '周杰伦 / 费玉清', '依然范特西', 262000, false],
+  ['菊花台', '周杰伦', '依然范特西', 272000, false],
+  ['听妈妈的话', '周杰伦', '依然范特西', 254000, false],
+  ['给我一首歌的时间', '周杰伦', '魔杰座', 245000, false],
+  ['说好的幸福呢', '周杰伦', '魔杰座', 252000, false],
+  ['彩虹', '周杰伦', '我很忙', 264000, false],
+  ['最长的电影', '周杰伦', '我很忙', 238000, false],
+  ['夜第七章', '周杰伦', '跨时代', 241000, false],
+  ['烟花易冷', '周杰伦', '跨时代', 274000, false],
+];
+
+const LRC = [
+  '[00:00.00]晴天 - 周杰伦',
+  '[00:01.20]故事的小黄花 从出生那年就飘着',
+  '[00:07.40]童年的荡秋千 随记忆一直晃到现在',
+  '[00:14.10]Re So So Si Do Si La',
+  '[00:18.60]So La Si Si Si Si La Si La So',
+  '[00:23.30]吹着前奏望着天空',
+  '[00:27.10]我想起花瓣试着掉落',
+  '[00:31.80]为你翘课的那一天',
+  '[00:35.20]花落的那一天',
+  '[00:38.00]教室的那一间',
+  '[00:40.90]我怎么看不见',
+  '[00:44.10]消失的下雨天',
+  '[00:46.80]我好想再淋一遍',
+  '[00:51.20]没想到失去的勇气我还留着',
+  '[00:58.00]好想再问一遍 你会等待还是离开',
+  '[01:06.40]刮风这天 我试过握着你手',
+  '[01:12.30]但偏偏 雨渐渐 大到我看你不见',
+].join('\n');
+
+const RESULTS = TITLES.map(([title, artist, album, durationMs, vip], i) => ({
+  platform: 'netease',
+  id: String(1900000000 + i),
+  title,
+  artists: String(artist).split(' / '),
+  album,
+  durationMs,
+  cover: cover(i),
+  vip,
+  playable: !vip,
+  url: 'https://music.163.com/song?id=' + (1900000000 + i),
+}));
+
+window.fetch = async (url) => {
+  const u = String(url);
+  const json = (payload) => ({ ok: true, status: 200, json: async () => payload });
+  if (u.includes('/health')) return json({ ok: true, version: 'preview' });
+  if (u.includes('/search')) {
+    const only = /platform=(\w+)/.exec(u);
+    const platform = only ? only[1] : 'netease';
+    const list = platform === 'netease' ? RESULTS : [];
+    return json({ ok: true, data: list });
+  }
+  if (u.includes('/song/url') || u.includes('/playurl')) {
+    return json({
+      ok: true,
+      data: {
+        playable: true,
+        mode: 'audio',
+        streamUrl: 'https://m702.music.126.net/preview/track.mp3',
+        ext: 'mp3',
+        bitrate: 320000,
+        durationSec: 279,
+      },
+    });
+  }
+  if (u.includes('/lyric')) return json({ ok: true, data: { lrc: LRC, tlyric: '' } });
+  if (u.includes('/playlist')) return json({ ok: true, data: [] });
+  return json({ ok: true, data: [] });
+};
+</script>
+
+<script src="../../iirose/music-iirose.js"></script>
+<script>
+/* 自动演一遍：开面板 → 搜「周杰伦」→ 点第一首 ▶（走房间点播） */
+(function () {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.__previewReady = (async () => {
+    await wait(600);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', altKey: true, bubbles: true, cancelable: true }));
+    await wait(300);
+    const kw = document.querySelector('[data-el=kw]');
+    if (kw) {
+      kw.value = '周杰伦';
+      const btn = document.querySelector('[data-act=search]');
+      if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+    await wait(700);
+    const play = document.querySelector('[data-play]');
+    if (play) play.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(1200);
+    // ?lyric=0 → 截图里不要歌词窗（它会浮在列表面板上）；?view=lyric → 关掉面板只留歌词
+    if (QUERY.get('lyric') === '0') {
+      const st = document.createElement('style');
+      st.textContent = '.mk-lyric-float{display:none!important}';
+      document.head.appendChild(st);
+    }
+    if (QUERY.get('view') === 'lyric') {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      const st = document.createElement('style');
+      st.textContent = '.doc{display:none!important}';
+      document.head.appendChild(st);
+      await wait(400);
+    }
+    if (QUERY.get('view') === 'playlists') {
+      const api = window.__MUSIC_IIROSE__ && window.__MUSIC_IIROSE__.panel;
+      if (api && api.importPlaylists) {
+        api.importPlaylists(
+          JSON.stringify({
+            playlists: [
+              { name: '周杰伦 · 早期五张', songs: RESULTS.slice(0, 5) },
+              { name: '深夜循环', songs: RESULTS.slice(5, 12) },
+              { name: '房间暖场', songs: RESULTS.slice(12, 20) },
+            ],
+          }),
+        );
+      }
+      const plBtn = document.querySelector('[data-act=playlists]');
+      if (plBtn) plBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(400);
+    }
+    window.__previewDone = true;
+  })();
+})();
+</script>
+</body>
+</html>
