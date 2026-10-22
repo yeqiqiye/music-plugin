@@ -53,7 +53,25 @@ window.inputcolorhex = '#ff9800';
 const QUERY = new URLSearchParams(location.search);
 try {
   // 文档截图默认用深色主题（headless Chrome 默认是浅色）
-  window.localStorage.setItem('mk_panel_settings', JSON.stringify({ theme: QUERY.get('theme') || 'dark', accent: 'blue', coverBg: true }));
+  // 面板只接受 http(s) 或 data:image/(png|jpeg|webp|gif);base64 —— 用 canvas 现画一张渐变 PNG
+  let previewBg = '';
+  if (QUERY.get('bg')) {
+    const cv = document.createElement('canvas');
+    cv.width = 64;
+    cv.height = 40;
+    const g2 = cv.getContext('2d');
+    const grad = g2.createLinearGradient(0, 0, 64, 40);
+    grad.addColorStop(0, '#3b2b62');
+    grad.addColorStop(0.5, '#7a3f6d');
+    grad.addColorStop(1, '#2b4a6b');
+    g2.fillStyle = grad;
+    g2.fillRect(0, 0, 64, 40);
+    previewBg = cv.toDataURL('image/png');
+  }
+  window.localStorage.setItem(
+    'mk_panel_settings',
+    JSON.stringify({ theme: QUERY.get('theme') || 'dark', accent: 'blue', coverBg: true, bg: previewBg, bgDim: previewBg ? 0.28 : 0 }),
+  );
   window.localStorage.setItem('mk_iirose_relay', 'https://relay.example.com');
   window.localStorage.removeItem('mk_playlists');
   window.localStorage.removeItem('mk_room_now');
@@ -207,6 +225,54 @@ window.fetch = async (url) => {
       const plBtn = document.querySelector('[data-act=playlists]');
       if (plBtn) plBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await wait(400);
+    }
+    if (QUERY.get('rects')) {
+      const pick = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) };
+      };
+      const rects = {
+        bg: QUERY.get('bg') ? 1 : 0,
+        head: pick('[data-el=head]') || pick('.mk-head'),
+        search: pick('.mk-search'),
+        hero: pick('.mk-hero'),
+        heroPos: (() => {
+          const el = document.querySelector('.mk-hero');
+          if (!el || !window.getComputedStyle) return '?';
+          const cs = window.getComputedStyle(el);
+          return cs.position + '/' + cs.zIndex + '/' + cs.height;
+        })(),
+        heroParent: (() => {
+          const el = document.querySelector('.mk-hero');
+          return el && el.parentElement ? el.parentElement.className : '?';
+        })(),
+        chain: (() => {
+          const el = document.querySelector('.mk-hero');
+          const out = [];
+          let n = el;
+          while (n && out.length < 6) {
+            out.push(n.tagName.toLowerCase() + '.' + (n.className || '') + (n.hasAttribute && n.hasAttribute('data-bg') ? '@bg=' + n.getAttribute('data-bg') : ''));
+            n = n.parentElement;
+          }
+          return out.join(' < ');
+        })(),
+        searchPos: (() => {
+          const el = document.querySelector('.mk-search');
+          return el && window.getComputedStyle ? window.getComputedStyle(el).position : '?';
+        })(),
+        tabs: pick('.mk-tabs'),
+        scopes: pick('.mk-scopes'),
+        body: pick('.mk-body'),
+        player: pick('.mk-player'),
+        stat: pick('.mk-stat'),
+      };
+      const pre = document.createElement('pre');
+      pre.id = 'rects';
+      pre.style.cssText = 'position:fixed;left:0;bottom:0;z-index:2147483001;margin:0;font-size:10px';
+      pre.textContent = JSON.stringify(rects);
+      document.body.appendChild(pre);
     }
     window.__previewDone = true;
   })();

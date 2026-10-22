@@ -73,6 +73,8 @@
 /* ---- 自定义背景：.mk-bgimg 放图，.mk-scrim 压一层遮罩 ---- */
 .mk-bgimg,.mk-scrim{display:none}
 .mk-root[data-bg="1"] .mk-card>*{position:relative;z-index:1}
+/* 封面那层是 absolute 的装饰：别被上面那条「子元素都 relative」拖回文档流（否则搜索框和平台 tab 之间空一大块） */
+.mk-root[data-bg="1"] .mk-card>.mk-hero{position:absolute;z-index:0;inset:-12% -6% auto -6%}
 .mk-root[data-bg="1"] .mk-card>.mk-bgimg,
 .mk-root[data-bg="1"] .mk-card>.mk-scrim{display:block;position:absolute;inset:0;z-index:0;pointer-events:none}
 .mk-root[data-bg="1"] .mk-card>.mk-bgimg{background-image:var(--mk-bg-img,none);background-size:cover;

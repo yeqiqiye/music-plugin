@@ -86,6 +86,7 @@ node dev/panel-jsdom.mjs          # 真 DOM（需 npm i -D jsdom；没装会自�
 node dev/iirose-smoke.mjs         # 真 DOM 跑 IIROSE 版：点播两帧逐字段断言
 node dev/server.mjs               # 本地起 3098，浏览器开 /selftest 看逐项自检
 node dev/shots.mjs                # 重拍文档截图 docs/img/*.png（本机 Chrome/Edge 的 headless）
+node dev/layout-check.mjs         # 量面板坐标：搜索框/平台 tab/列表之间有没有莫名空隙（无背景 + 有背景两种）
 ```
 
 想要「不用装脚本也能看面板」：直接打开 [`docs/demo/index.html`](docs/demo/index.html) ——
@@ -99,7 +100,7 @@ CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
 在 IIROSE 里：设置 →「引用 JS 脚本文件链接」→ 粘一行（多个脚本一行一个）：
 
 ```
-https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.0/iirose/music-iirose.js
+https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，

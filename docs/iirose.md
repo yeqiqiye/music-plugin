@@ -33,7 +33,7 @@
 1. 打开 IIROSE → 设置里找到「引用 JS 脚本文件链接」那个对话框；
 2. 粘下面任意一行（有多个脚本就一行一个）：
    ```
-   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.0/iirose/music-iirose.js
+   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js
    ```
 3. 刷新页面（F5），进一个 **音乐分享 / 视频分享** 属性的房间。
 
@@ -41,9 +41,9 @@
 
 > 三种 CDN 地址，哪个快用哪个（内容完全一样）：
 >
-> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.0/iirose/music-iirose.js`
-> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.0/iirose/music-iirose.js`
-> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.0/iirose/music-iirose.js`
+> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js`
+> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js`
+> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js`
 
 ## 房间要求（这条最容易卡住）
 
@@ -264,6 +264,13 @@ localStorage.setItem('mk_iirose_hotkey', 'Alt+M'); // 刷新后生效
 
 > 本机图片会压成 JPEG 再塞进 `localStorage`（浏览器上限约 5MB）。压缩后仍超过 900KB 会
 > 直接提示改用图片链接；存不下时当下仍然生效，但刷新会丢 —— 设置页里会明确提示。
+
+![设了自定义背景时的面板](img/panel-bg.png)
+
+> 设了背景之后标题栏和列表都变透明、壁纸直接透上来，「搜索 / 平台 tab / 歌曲列表」这一列的位置不变。
+> v3.0.1 修过这里的一个 bug：设了背景时，封面那层装饰（`absolute`）会被「子元素统一 relative」那条
+> CSS 拖回文档流，凭空顶出 220px 的空洞 —— 表现为「搜索框位置不对、搜索结果中间空了一块」。
+> 现在由 `node dev/layout-check.mjs` 量真实坐标兜着，两种状态都跑一遍。
 
 ### 正在播放条与封面背景
 
@@ -569,10 +576,12 @@ __MUSIC_IIROSE__.panel.open()
 
 ## 版本与更新
 
-脚本地址里带 tag（`@v3.0.0`）。升级时把地址里的版本号改掉再刷新即可，
+脚本地址里带 tag（`@v3.0.1`）。升级时把地址里的版本号改掉再刷新即可，
 jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓存）。
 
 | 版本 | 内容 |
+|---|---|
+| **v3.0.1** | **修一个只在「设了自定义背景」时才出现的布局 bug**：封面那层是绝对定位的装饰，却被 `.mk-root[data-bg="1"] .mk-card>*` 那条「子元素统一 relative」的规则盖掉了，于是它以 220px 的高度回到文档流 —— 搜索框和平台 tab 之间空出一大块、列表被压到 81px。修法是给 `.mk-hero` 补一条更高优先级的 absolute 规则。另加 `node dev/layout-check.mjs`（headless Chrome 量坐标，无背景 / 有背景两种状态各跑一遍），已进 `npm test` |
 |---|---|
 | **v3.0.0** | **歌单能搬家了**：歌单页新增「导出 / 导入」（一份 JSON，换浏览器、换电脑不丢；同名同曲自动跳过，不会存两份）。**文档补齐**：`docs/demo/index.html` 是一个能直接打开的**真脚本 + 假数据**预览页，`node dev/shots.mjs` 用它出截图（Chrome/Edge headless，不用装 playwright）；README 与本文档都配上了图，陈旧的安装地址（`@v0.2.0`）一并换成当前版本 |
 | **v2.7.0** | **播放器样式**：正在播放条换成「封面 + 歌名 / 歌手 · 平台 · 剩余」；当前封面会在面板顶上做一层模糊背景（Apple Music 那种），可在 设置 → 外观 → **封面当背景** 关掉，设了自定义背景时自动让位。没搬的：进度条/音量（播放器归客户端）、B 站 `#audio=`（地址按出口 IP 签名） |

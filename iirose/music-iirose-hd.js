@@ -1,4 +1,4 @@
-/*! music-iirose v3.0.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v3.0.1 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -74,6 +74,8 @@
 /* ---- 自定义背景：.mk-bgimg 放图，.mk-scrim 压一层遮罩 ---- */
 .mk-bgimg,.mk-scrim{display:none}
 .mk-root[data-bg="1"] .mk-card>*{position:relative;z-index:1}
+/* 封面那层是 absolute 的装饰：别被上面那条「子元素都 relative」拖回文档流（否则搜索框和平台 tab 之间空一大块） */
+.mk-root[data-bg="1"] .mk-card>.mk-hero{position:absolute;z-index:0;inset:-12% -6% auto -6%}
 .mk-root[data-bg="1"] .mk-card>.mk-bgimg,
 .mk-root[data-bg="1"] .mk-card>.mk-scrim{display:block;position:absolute;inset:0;z-index:0;pointer-events:none}
 .mk-root[data-bg="1"] .mk-card>.mk-bgimg{background-image:var(--mk-bg-img,none);background-size:cover;
@@ -4561,7 +4563,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '3.0.0';
+  var VERSION = '3.0.1';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';

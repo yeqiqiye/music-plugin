@@ -29,6 +29,7 @@ const SHOTS = [
   { file: 'panel.png', w: 1060, h: 790, query: '?lyric=0', what: '面板主界面（搜索结果 + 正在播放条）' },
   { file: 'playlists.png', w: 1060, h: 790, query: '?lyric=0&view=playlists', what: '我的歌单（导出 / 导入）' },
   { file: 'lyric.png', w: 1000, h: 620, query: '?view=lyric', what: '歌词悬浮窗' },
+  { file: 'panel-bg.png', w: 1060, h: 790, query: '?lyric=0&bg=1', what: '设了自定义背景时的面板' },
 ];
 
 const TYPES = {
