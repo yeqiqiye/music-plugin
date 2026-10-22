@@ -1,4 +1,4 @@
-/*! music-iirose v2.6.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.7.0 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -89,7 +89,7 @@
 .mk-card{position:relative;width:min(1000px,94vw);height:min(720px,90vh);display:flex;flex-direction:column;
   background:color-mix(in srgb, var(--mk-bg) calc(var(--mk-alpha, 1) * 100%), transparent);
   backdrop-filter:blur(calc((1 - var(--mk-alpha, 1)) * 12px));
-  border:1px solid var(--mk-line);border-radius:16px;overflow:hidden;
+  border:1px solid var(--mk-line);border-radius:16px;overflow:hidden;isolation:isolate;
   box-shadow:var(--mk-shadow)}
 .mk-clock{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--mk-dim);padding:3px 9px;
   border:1px solid var(--mk-line);border-radius:8px;letter-spacing:.5px}
@@ -211,8 +211,18 @@
   background:var(--mk-raised);color:inherit;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
 .mk-player .mk-ctl:hover{border-color:var(--mk-accent);background:var(--mk-hover-strong)}
 .mk-player .mk-ctl.mk-main{background:var(--mk-primary-bg);border-color:var(--mk-on-line);color:var(--mk-primary-fg);width:36px;height:36px}
-.mk-now{flex:1 1 150px;min-width:110px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mk-now small{display:block;color:var(--mk-dim);font-size:11.5px}
+.mk-now{flex:1 1 170px;min-width:120px;display:flex;align-items:center;gap:9px;overflow:hidden}
+.mk-now-art{width:38px;height:38px;border-radius:9px;overflow:hidden;flex:none;background:var(--mk-raised);
+  border:1px solid var(--mk-line);display:flex;align-items:center;justify-content:center;color:var(--mk-dim);font-size:15px}
+.mk-now-art img{width:100%;height:100%;object-fit:cover;display:block}
+.mk-now-info{min-width:0;display:flex;flex-direction:column;justify-content:center}
+.mk-now-title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-now-sub{color:var(--mk-dim);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 封面当背景：只在没自定义背景时出现，模糊 + 暗化，不抢文字 */
+.mk-hero{position:absolute;z-index:-1;inset:-12% -6% auto -6%;height:220px;pointer-events:none;opacity:0;
+  background-size:cover;background-position:center;filter:blur(34px) saturate(1.15);transition:opacity .5s ease;
+  -webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 88%);mask-image:linear-gradient(to bottom,#000 0%,transparent 88%)}
+.mk-hero.mk-on{opacity:.42}
 .mk-seek{flex:2 1 190px;display:flex;align-items:center;gap:8px;min-width:150px}
 .mk-seek input[type=range]{flex:1;accent-color:var(--mk-accent)}
 .mk-time{font-size:11.5px;color:var(--mk-dim);font-variant-numeric:tabular-nums;flex:none;min-width:80px;text-align:right}
@@ -403,6 +413,7 @@
           <input class="mk-input" data-el="kw" type="search" placeholder="搜歌名 / 歌手，例如：晴天 周杰伦" autocomplete="off">
           <button class="mk-btn mk-primary" data-act="search">搜索</button>
         </div>
+        <div class="mk-hero" data-el="hero"></div>
         <div class="mk-tabs" data-el="tabs"></div>
         <div class="mk-batch" data-el="batch">
           <span data-el="batch-txt"></span>
@@ -416,7 +427,13 @@
           <button class="mk-ctl" data-act="prev" title="上一首">⏮</button>
           <button class="mk-ctl mk-main" data-act="toggle-play" title="播放 / 暂停">▶</button>
           <button class="mk-ctl" data-act="next" title="下一首">⏭</button>
-          <div class="mk-now" data-el="now">未在播放<small>点结果里的 ▶ 开始</small></div>
+          <div class="mk-now" data-el="now">
+            <div class="mk-now-art" data-el="now-art"><span>♪</span></div>
+            <div class="mk-now-info">
+              <div class="mk-now-title" data-el="now-title">未在播放</div>
+              <div class="mk-now-sub" data-el="now-sub">点结果里的 ▶ 开始</div>
+            </div>
+          </div>
           <div class="mk-seek">
             <input type="range" data-el="seek" min="0" max="1000" value="0" step="1">
             <span class="mk-time" data-el="time">0:00 / 0:00</span>
@@ -468,6 +485,10 @@
     const elStat = $('[data-el=stat]') || stub();
     const elLoginBtn = $('[data-act=login]') || stub();
     const elNow = $('[data-el=now]') || stub();
+    const elNowArt = $('[data-el=now-art]') || stub();
+    const elNowTitle = $('[data-el=now-title]') || stub();
+    const elNowSub = $('[data-el=now-sub]') || stub();
+    const elHero = $('[data-el=hero]') || null;
     const elSeek = $('[data-el=seek]') || stub();
     const elTime = $('[data-el=time]') || stub();
     const elVol = $('[data-el=vol]') || stub();
@@ -526,7 +547,7 @@
     ];
     const SETTINGS_DEFAULT = {
       ball: true, gesture: true, theme: 'auto', accent: 'blue', compact: false,
-      card: true, batchSummary: true, neteaseLevel: 'exhigh', bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
+      card: true, batchSummary: true, neteaseLevel: 'exhigh', coverBg: true, bili: 'video', quality: '720', bg: '', bgDim: 0.5, bgBlur: false,
       bgZoom: 1.06, bgX: 0, bgY: 0, bgBright: 1,
       lyric: true, lyricSize: 3, lyricFloat: true, lyricLock: false, lyricLines: 3, lyricW: 520,
       opacity: 1, clock: true,
@@ -553,6 +574,7 @@
       out.compact = Boolean(out.compact);
       out.card = out.card !== false;
       out.batchSummary = out.batchSummary !== false;
+      out.coverBg = out.coverBg !== false;
       out.neteaseLevel = NET_LEVELS.some((x) => x.id === out.neteaseLevel) ? out.neteaseLevel : 'exhigh';
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
@@ -646,6 +668,8 @@
       return 'dark';
     }
 
+    var nowArtUrl = '';
+
     function applyBackground() {
       const bg = settings.bg || '';
       root.setAttribute('data-bg', bg ? '1' : '0');
@@ -662,6 +686,11 @@
       st.setProperty('--mk-bg-x', (settings.bgX || 0) + '%');
       st.setProperty('--mk-bg-y', (settings.bgY || 0) + '%');
       st.setProperty('--mk-bg-bright', String(settings.bgBright || 1));
+      if (elHero) {
+        const useIt = !bg && settings.coverBg !== false && Boolean(nowArtUrl);
+        elHero.style.backgroundImage = useIt ? 'url("' + String(nowArtUrl).replace(/"/g, '%22') + '")' : '';
+        elHero.classList.toggle('mk-on', useIt);
+      }
     }
 
     function applySettings() {
@@ -905,6 +934,7 @@
           : '') +
         '</div>' +
         '<div class="mk-set-group"><h4>外观</h4>' +
+        sw('coverBg', '封面当背景', '正在播放的封面会在面板顶上做一层模糊背景；设了自定义背景时不生效') +
         sw('lyric', '显示歌词', '有歌词的曲目在悬浮窗里滚动，外语歌原文 + 译文双行') +
         '<p class="mk-note">歌词窗上直接调：<b>A− / A+</b> 字号（5 档）· 按住拖动位置 · 右下角斜着拉改大小（上下拉 = 多看 / 少看几行）· <b>🔒</b> 锁定后点击穿透 · <b>✕</b> 关掉。</p>' +
         '<div class="mk-bg-inputs"><button class="mk-btn mk-ghost" data-act="lyric-reset">重置歌词窗（位置 / 字号 / 解锁）</button></div>' +
@@ -1530,8 +1560,25 @@
       return s.platform + ':' + s.id;
     }
 
+
+    /** 正在播放的封面：有就显示，同时把它当面板顶部的模糊背景（可关） */
+    function setNowArt(src) {
+      const url = String(src || '');
+      if (url === nowArtUrl) return;
+      nowArtUrl = url;
+      if (elNowArt) {
+        elNowArt.innerHTML = url ? '<img src="' + esc(url) + '" alt="" loading="lazy">' : '<span>♪</span>';
+      }
+      if (elHero) {
+        const useIt = url && settings.coverBg !== false && !settings.bg;
+        elHero.style.backgroundImage = useIt ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
+        elHero.classList.toggle('mk-on', Boolean(useIt));
+      }
+    }
+
     function setNow(main, sub) {
-      elNow.innerHTML = esc(main || '未在播放') + (sub ? '<small>' + esc(sub) + '</small>' : '');
+      if (elNowTitle) elNowTitle.textContent = main || '未在播放';
+      if (elNowSub) elNowSub.textContent = sub || '';
     }
 
     function setPlayIcon(playing) {
@@ -1633,6 +1680,7 @@
             durationMs: (info && info.durationSec ? Number(info.durationSec) * 1000 : 0) || Number(song.durationMs) || 0,
             platform: song.platform,
             id: song.id,
+            cover: song.cover || '',
             startedAt: Date.now(),
             predicted: true,
           });
@@ -1641,7 +1689,8 @@
         elAudio.src = info.streamUrl;
         elAudio.load();
         await elAudio.play();
-        setNow(label, '播放中 · ' + (info.ext || 'audio') + (info.bitrate ? ' · ' + Math.round(info.bitrate / 1000) + 'k' : ''));
+        setNowArt(song.cover || '');
+      setNow(label, '播放中 · ' + (info.ext || 'audio') + (info.bitrate ? ' · ' + Math.round(info.bitrate / 1000) + 'k' : ''));
         setPlayIcon(true);
         setStat('正在播放：' + esc(song.title));
         markPlayed(song, 'local');
@@ -2301,6 +2350,7 @@
               durationMs: Number(song.durationMs) || 0,
               platform: song.platform,
               id: song.id,
+              cover: song.cover || '',
               startedAt: Date.now(),
               predicted: true,
             });
@@ -2870,12 +2920,15 @@
       if (playMode !== 'room') return;
       if (!roomNow) {
         setNow('未在播放', '点结果里的 ▶ 开始');
+        setNowArt('');
         return;
       }
       const bits = [];
       if (roomNow.artists && roomNow.artists.length) bits.push(roomNow.artists.join(' / '));
+      if (roomNow.platform) bits.push(labelOf(roomNow.platform));
       const left = nowRemainMs();
       if (left != null) bits.push('剩 ' + fmtDur(Math.max(0, left)));
+      setNowArt(roomNow.cover || '');
       setNow('房间：' + roomNow.title, bits.join(' · '));
     }
 
@@ -2929,6 +2982,7 @@
         platform: (info && info.platform) || (same ? prev.platform : '') || '',
         id: (info && info.id) || (same ? prev.id : '') || '',
         lrc: (info && info.lrc) || (same ? prev.lrc : '') || '',
+        cover: (info && info.cover) || (same ? prev.cover : '') || '',
         src: (info && info.src) || (same ? prev.src : '') || '',
         predicted: same ? Boolean(prev.predicted && !fromFrame) : !fromFrame,
       };
@@ -4352,7 +4406,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.6.0';
+  var VERSION = '2.7.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
@@ -5008,6 +5062,8 @@
               src: media.s || '',
               platform: where.platform,
               id: where.id,
+              // 封面：帧里的 c 是 app 相对路径（/i/xxx.png），补成完整地址给面板做封面/背景
+              cover: media.c ? https(media.c) : '',
               startedAt: Date.now(),
             });
           }

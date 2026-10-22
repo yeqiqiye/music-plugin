@@ -334,6 +334,19 @@ if (card) {
   check('公屏卡片不带 g（带 g 会变成私聊，只有自己看得到）', !('g' in card), JSON.stringify(card).slice(0, 60));
 }
 check('帧计数被记录', diag && diag.framesSent === 2, String(diag && diag.framesSent));
+await tick(80);
+const artImg = panelEl.querySelector('.mk-now-art img');
+check(
+  '正在播放有封面缩略图（v2.7.0）',
+  Boolean(artImg) && String(artImg.getAttribute('src')).includes('cover-abc'),
+  artImg ? artImg.getAttribute('src') : 'none',
+);
+const heroEl = panelEl.querySelector('.mk-hero');
+check(
+  '封面被当成顶部模糊背景',
+  Boolean(heroEl) && heroEl.classList.contains('mk-on') && String(heroEl.style.backgroundImage).includes('cover-abc'),
+  heroEl ? heroEl.style.backgroundImage.slice(0, 60) : 'none',
+);
 await tick(600);
 const lyrEl = window.document.querySelector('.mk-lyric-float');
 check('歌词面板显示原文', Boolean(lyrEl) && lyrEl.textContent.includes('晴天 歌词'), lyrEl ? lyrEl.textContent.slice(0, 40) : 'no el');

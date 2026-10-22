@@ -673,6 +673,8 @@
               src: media.s || '',
               platform: where.platform,
               id: where.id,
+              // 封面：帧里的 c 是 app 相对路径（/i/xxx.png），补成完整地址给面板做封面/背景
+              cover: media.c ? https(media.c) : '',
               startedAt: Date.now(),
             });
           }
