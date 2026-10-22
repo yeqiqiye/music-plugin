@@ -1,4 +1,4 @@
-/*! music-iirose v2.4.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v2.4.1 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -893,6 +893,7 @@
         '<div class="mk-set-group"><h4>外观</h4>' +
         sw('lyric', '显示歌词', '有歌词的曲目在悬浮窗里滚动，外语歌原文 + 译文双行') +
         '<p class="mk-note">歌词窗上直接调：<b>A− / A+</b> 字号（5 档）· 按住拖动位置 · 右下角斜着拉改大小（上下拉 = 多看 / 少看几行）· <b>🔒</b> 锁定后点击穿透 · <b>✕</b> 关掉。</p>' +
+        '<div class="mk-bg-inputs"><button class="mk-btn mk-ghost" data-act="lyric-reset">重置歌词窗（位置 / 字号 / 解锁）</button></div>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>主题</b><small>跟随系统会按手机的深 / 浅色自动切</small></div></div>' +
         '<div class="mk-chips">' +
         chip('theme', 'auto', '跟随系统') +
@@ -1269,6 +1270,9 @@
     function onSchemeChange() {
       if (settings.theme === 'auto') applySettings();
     }
+    function onViewportChange() {
+      clampLyricFloat();
+    }
     let mqList = null;
     try {
       mqList = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
@@ -1278,6 +1282,9 @@
     try {
       window.addEventListener('mk-settings', onWindowSettings);
       window.addEventListener('storage', onStorage);
+      // 视口变了（旋转手机 / 改窗口大小）就把歌词窗夹回可见范围，别让它跑出去
+      window.addEventListener('resize', onViewportChange);
+      window.addEventListener('orientationchange', onViewportChange);
     } catch {
       /* 忽略 */
     }
@@ -2998,6 +3005,48 @@
     }
 
     /** 歌词窗独立挂在 body 上：关掉点歌台它还在，可以拖到任意位置 */
+    /** 歌词窗尺寸（jsdom / 刚创建时拿不到真实布局，就按设置估算） */
+    function lyricFloatSize(el) {
+      const w = (el && el.offsetWidth) || Math.round(Number(settings.lyricW) || 520);
+      const lines = Math.min(9, Math.max(1, Math.round(Number(settings.lyricLines) || 3)));
+      const h = (el && el.offsetHeight) || Math.round(lines * lyricFontPx() * 1.55 + 26);
+      return { w, h };
+    }
+
+    /** 允许出现的位置：整块留在视口里，顶部还要给按钮条留出位置（不然锁定了点不到 🔓） */
+    function lyricBounds(w, h) {
+      const vw = window.innerWidth || 1024;
+      const vh = window.innerHeight || 768;
+      const pad = 8;
+      const barPad = 30;
+      const minX = pad;
+      const maxX = Math.max(minX, vw - w - pad);
+      const minY = barPad;
+      const maxY = Math.max(minY, vh - h - pad);
+      return { minX, maxX, minY, maxY };
+    }
+
+    /** 把当前位置夹回可见范围（窗口变小、旋转屏幕、旧位置越界时都靠它） */
+    function clampLyricFloat() {
+      const el = lyricFloat;
+      if (!el || !el.style) return false;
+      // 只有「手动定位过」的才夹，默认的居中偏下布局不动
+      if (el.style.transform !== 'none') return false;
+      const size = lyricFloatSize(el);
+      const b = lyricBounds(size.w, size.h);
+      const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      const x = rect && rect.width ? rect.left : parseFloat(el.style.left);
+      const y = rect && rect.height ? rect.top : parseFloat(el.style.top);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      const nx = Math.min(b.maxX, Math.max(b.minX, x));
+      const ny = Math.min(b.maxY, Math.max(b.minY, y));
+      if (Math.abs(nx - x) < 1 && Math.abs(ny - y) < 1) return false;
+      el.style.left = Math.round(nx) + 'px';
+      el.style.top = Math.round(ny) + 'px';
+      saveLyricPos(nx, ny);
+      return true;
+    }
+
     function ensureLyricFloat() {
       if (lyricFloat) return lyricFloat;
       const el = doc.createElement('div');
@@ -3020,6 +3069,8 @@
         el.style.top = pos.y + 'px';
         el.style.bottom = 'auto';
         el.style.transform = 'none';
+        lyricFloat = el;
+        clampLyricFloat(); // 旧位置越界 / 换了屏幕：拉回可见范围
       }
       let dragging = false;
       let offX = 0;
@@ -3049,17 +3100,20 @@
       });
       el.addEventListener('pointermove', (ev) => {
         if (!dragging) return;
-        const x = Math.min(window.innerWidth - 60, Math.max(-20, (ev.clientX || 0) - offX));
-        const y = Math.min(window.innerHeight - 30, Math.max(-10, (ev.clientY || 0) - offY));
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
+        const size = lyricFloatSize(el);
+        const b = lyricBounds(size.w, size.h);
+        const x = Math.min(b.maxX, Math.max(b.minX, (ev.clientX || 0) - offX));
+        const y = Math.min(b.maxY, Math.max(b.minY, (ev.clientY || 0) - offY));
+        el.style.left = Math.round(x) + 'px';
+        el.style.top = Math.round(y) + 'px';
       });
       const up = () => {
         if (!dragging) return;
         dragging = false;
         el.classList.remove('mk-drag');
+        clampLyricFloat(); // 松手再夹一次：保证按钮条一定在屏幕里
         const r = el.getBoundingClientRect();
-        saveLyricPos(r.left, r.top);
+        if (r.width && r.height) saveLyricPos(r.left, r.top);
       };
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
@@ -3078,7 +3132,8 @@
             settings = normalizeSettings(Object.assign({}, settings, { lyricLock: !settings.lyricLock }));
             saveSettings();
             applySettings();
-            setStat(settings.lyricLock ? '歌词窗已锁定（点击穿透；点右上角 🔓 解锁）' : '歌词窗已解锁，可以拖了');
+            if (settings.lyricLock) clampLyricFloat(); // 锁之前先把窗子拉回可见范围，🔓 一定点得到
+            setStat(settings.lyricLock ? '歌词窗已锁定（点击穿透；点右上角 🔓 解锁，设置里也能重置）' : '歌词窗已解锁，可以拖了');
           } else if (act === 'close') {
             settings = normalizeSettings(Object.assign({}, settings, { lyric: false }));
             saveSettings();
@@ -3774,6 +3829,27 @@
         else if (name === 'batch-play') playAll(lastResults);
         else if (name === 'play-sel') playSelected();
         else if (name === 'batch-cancel') cancelBatch();
+        else if (name === 'lyric-reset') {
+          // 保底：不管锁在哪、拖到哪，一键回到默认位置 + 解锁 + 字号行数复位
+          try {
+            window.localStorage.removeItem('mk_lyric_pos');
+          } catch (e) {
+            /* 忽略 */
+          }
+          if (lyricFloat && lyricFloat.style) {
+            lyricFloat.style.left = '';
+            lyricFloat.style.top = '';
+            lyricFloat.style.bottom = '';
+            lyricFloat.style.transform = '';
+          }
+          settings = normalizeSettings(
+            Object.assign({}, settings, { lyric: true, lyricLock: false, lyricSize: 3, lyricLines: 3, lyricW: 520 }),
+          );
+          saveSettings();
+          applySettings();
+          renderSettings();
+          setStat('歌词窗已重置：回到默认位置、解锁、字号/行数复位');
+        }
         else if (name === 'sel-all') toggleSelectAll();
         else if (name === 'queue') renderQueue();
         else if (name === 'history') renderHistory();
@@ -3984,6 +4060,8 @@
       try {
         window.removeEventListener('mk-settings', onWindowSettings);
         window.removeEventListener('storage', onStorage);
+        window.removeEventListener('resize', onViewportChange);
+        window.removeEventListener('orientationchange', onViewportChange);
       } catch {
         /* 忽略 */
       }
@@ -4105,7 +4183,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '2.4.0';
+  var VERSION = '2.4.1';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';

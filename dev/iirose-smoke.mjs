@@ -1028,6 +1028,56 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   );
 }
 
+// ---------------- 18. 歌词窗跑到屏幕外 / 锁定后解不开：夹回可见范围 + 保底重置 ----------------
+{
+  const dT = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    url: 'https://iirose.com/',
+  });
+  const wT = dT.window;
+  wT.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, data: [] }) });
+  wT.socket = { send() {}, onmessage: null };
+  wT.uid = '1';
+  // 旧位置在屏幕外（换个屏幕 / 拖出边界之后再打开就会这样）
+  wT.localStorage.setItem('mk_lyric_pos', JSON.stringify({ x: 9000, y: 9000 }));
+  wT.localStorage.setItem(
+    'mk_room_now',
+    JSON.stringify({
+      title: '测试',
+      artists: [],
+      startedAt: Date.now() - 1000,
+      durationMs: 200000,
+      platform: '',
+      id: '',
+      src: '',
+      lrc: '[00:00.00]第一句\n[00:10.00]第二句',
+    }),
+  );
+  vm.runInContext(code, dT.getInternalVMContext(), { filename: 'music-iirose.js' });
+  await tick(150);
+  const doc = wT.document;
+  const f = doc.querySelector('.mk-lyric-float');
+  const left = parseFloat(f.style.left);
+  const top = parseFloat(f.style.top);
+  check('越界的位置被拉回可见范围（左上）', left >= 0 && left <= 1024 - 100, 'left=' + left);
+  check('越界的位置被拉回可见范围（顶部要给按钮条留位置）', top >= 20 && top <= 768 - 40, 'top=' + top);
+  check('夹回来之后把新位置存回本机', JSON.parse(wT.localStorage.getItem('mk_lyric_pos')).x < 1000);
+
+  // 保底：设置里的「重置歌词窗」
+  doc.querySelector('[data-act=settings]').dispatchEvent(new wT.MouseEvent('click', { bubbles: true }));
+  await tick(80);
+  const resetBtn = doc.querySelector('[data-act=lyric-reset]');
+  check('设置里有「重置歌词窗」按钮', Boolean(resetBtn));
+  resetBtn.dispatchEvent(new wT.MouseEvent('click', { bubbles: true }));
+  await tick(80);
+  check('重置后本机位置被清掉', wT.localStorage.getItem('mk_lyric_pos') === null);
+  check('重置后回到默认布局（不写 left/top）', !f.style.left && !f.style.top, 'left=' + f.style.left + ' top=' + f.style.top);
+  const st = JSON.parse(wT.localStorage.getItem('mk_panel_settings') || '{}');
+  check('重置后是解锁状态', st.lyricLock === false, String(st.lyricLock));
+  check('重置后歌词是开着的', st.lyric !== false, String(st.lyric));
+}
+
 console.log('');
 if (failures.length) {
   console.log('结果：' + failures.length + ' 项失败 -> ' + failures.join(' / '));
