@@ -33,7 +33,7 @@
 1. 打开 IIROSE → 设置里找到「引用 JS 脚本文件链接」那个对话框；
 2. 粘下面任意一行（有多个脚本就一行一个）：
    ```
-   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js
+   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js
    ```
 3. 刷新页面（F5），进一个 **音乐分享 / 视频分享** 属性的房间。
 
@@ -41,9 +41,9 @@
 
 > 三种 CDN 地址，哪个快用哪个（内容完全一样）：
 >
-> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js`
-> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js`
-> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.1/iirose/music-iirose.js`
+> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js`
+> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js`
+> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js`
 
 ## 房间要求（这条最容易卡住）
 
@@ -175,6 +175,8 @@ GET /health                                                         → { ok, pl
 | 变量 | 作用 |
 |---|---|
 | `NETEASE_COOKIE` | 网易云搜索/取地址都带上它。**有会员时，VIP 曲能拿到真实音频** |
+| `QQ_COOKIE` | QQ 音乐绿钻曲全靠它：整条 Cookie，必须含 `uin=` 与 `qm_keyst=` |
+| `QQ_UIN` | QQ 号（纯数字）。不填会从 Cookie 的 `uin=` 里取 |
 | `KUGOU_COOKIE` | 可选；酷狗的接口会带上，对部分付费曲有用（未逐一验证） |
 | `BILI_COOKIE` | 可选但**很关键**：B 站取播放地址常被机房 IP 判成爬虫（412）。填浏览器的整条 Cookie（含 `SESSDATA`）后成功率高很多，也能解锁更清晰的视频 |
 
@@ -192,6 +194,23 @@ GET /health                                                         → { ok, pl
 
 > 在 IIROSE 里按 F12 有时会被站点的反调试搞到页面反复刷新 —— 那和本项目无关。
 > 配中转不需要 F12（用右下角 ⚙），只有复制网易云 Cookie 才需要用一次 DevTools（在 music.163.com 上用）。
+
+### 怎么拿到 QQ 音乐 Cookie（绿钻曲需要）
+
+1. 浏览器打开 `https://y.qq.com` 并确认已登录（要放绿钻曲就得是开着绿钻的号）；
+2. F12 → **Network**（网络）→ 随便点一条 `y.qq.com` 的请求；
+3. **Request Headers** → `Cookie` 整行复制（一定要包含 `uin=`、`qm_keyst=`、`qqmusic_key=`）；
+4. 贴到 `QQ_COOKIE`，QQ 号填到 `QQ_UIN`（不填也行，代码会从 Cookie 的 `uin=` 里取）；
+5. 云函数改完环境变量要**重新部署一次**（FC 控制台点「保存并部署」），几十秒后生效。
+
+判断 Cookie 有没有过期，看这一条就够了：
+
+| 现象 | 说明 |
+|---|---|
+| 免费曲能放、绿钻/VIP 曲**全部**「拿不到播放地址」 | Cookie 过期（或复制时被截断） |
+| 只有个别曲放不出来 | 那是数字专辑/版权限制，跟 Cookie 无关 |
+
+> 我这边的实测（v3.0.2 发布时）：用过期 Cookie 打 QQ 官方 vkey 接口，`result` 是 `104003`，而且**带不带 Cookie 结果完全一样**（说明服务端没认到登录态）；换成有效 Cookie 后同一首《晴天》返回 `result: 0`，18 首绿钻曲命中率从 `0/18` 变成 `18/18`。
 
 ## 热键与模式
 
@@ -403,14 +422,27 @@ B 站一个视频有两种播法，设置 → 点歌 → **「B 站播放」**�
 第三方都是抓包 + 模拟，随时会被封，做成插件只会「今天能用明天全挂」。所以现在走的是搜狗/Bing/斗图啦这类公开源。
 真要「微信味」：在微信里把表情**存成图片**再拖进聊天框手发，或者用搜索里的「微信 表情包」关键词 —— 后者能搜到大量搬运图。
 
-### 网易云音质（8 档）
+### 音质（网易云 8 档 / QQ 3 档）
 
-设置 → 点歌 →「网易云音质」：标准 / 较高 / 极高 / 无损 / Hi-Res / 环绕 / 沉浸 / 母带。
+设置 → 点歌 →「音质」，网易云和 **QQ 共用这一个开关**。
+
+网易云（8 档）：标准 / 较高 / 极高 / 无损 / Hi-Res / 环绕 / 沉浸 / 母带。
 
 - 走中转（v2.3.0 起中转支持 `level` 参数），实测同一首歌：`standard` 128 kbps、`exhigh` 320 kbps、`lossless` 1676 kbps；
 - 档位能不能给到，取决于中转里那把 `NETEASE_COOKIE` 的会员等级：普通会员最高到 **无损**，
   要 Hi-Res / 母带得是 SVIP，拿不到时中转会**自动退回 320k**（附一句说明），不会放不出来；
 - 没配中转时走公共接口，音质按接口给的来。
+
+QQ（v3.0.2 起同样跟着这个开关）：
+
+| 面板选的档位 | QQ 实际请求 | 实测 |
+|---|---|---|
+| 标准 | `C400` m4a 128k | 3.3 MB / 4:29 |
+| 较高 / 极高 | `M800` mp3 320k | 10.8 MB / 4:29 |
+| 无损 / Hi-Res / 母带 | `F000` flac | 55.4 MB / 4:29 |
+
+- 顺序是「无损 → 320k → 128k」逐级往下降，某一档拿不到地址（或文件实际 404）就退下一档，所以**免费曲也能放**，只是降到它给得出的那档；
+- 前提是中转里配了有效的 `QQ_COOKIE`（见上一节），没配的话只有免费曲能放。
 
 ## 它是怎么"发到房间"的
 
@@ -576,13 +608,13 @@ __MUSIC_IIROSE__.panel.open()
 
 ## 版本与更新
 
-脚本地址里带 tag（`@v3.0.1`）。升级时把地址里的版本号改掉再刷新即可，
+脚本地址里带 tag（`@v3.0.2`）。升级时把地址里的版本号改掉再刷新即可，
 jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓存）。
 
 | 版本 | 内容 |
 |---|---|
+| **v3.0.2** | **QQ 音乐修好 + 跟上音质**：之前绿钻曲全失败的根因是 Cookie 过期（实测过期 Cookie 打官方 vkey 接口返回 `104003`，且带不带 Cookie 结果完全一样；换新 Cookie 后同一首《晴天》返回 `result: 0`，18 首绿钻曲命中率 `0/18 → 18/18`）。顺带让 QQ 也跟「音质」开关走：标准 `C400` 128k m4a / 较高·极高 `M800` 320k mp3 / 无损及以上 `F000` flac，取不到就逐级降档，某档文件 404 也会退下一档，所以免费曲照样能放（实测 320k 10.8MB、flac 55.4MB）。中转 `/health` 的 features 增加 `qq-level`；新增 `dev/qq-level.mjs` 离线单测（假上游 + 换 songmid 规避 5 分钟缓存），已进 `npm test` |
 | **v3.0.1** | **修一个只在「设了自定义背景」时才出现的布局 bug**：封面那层是绝对定位的装饰，却被 `.mk-root[data-bg="1"] .mk-card>*` 那条「子元素统一 relative」的规则盖掉了，于是它以 220px 的高度回到文档流 —— 搜索框和平台 tab 之间空出一大块、列表被压到 81px。修法是给 `.mk-hero` 补一条更高优先级的 absolute 规则。另加 `node dev/layout-check.mjs`（headless Chrome 量坐标，无背景 / 有背景两种状态各跑一遍），已进 `npm test` |
-|---|---|
 | **v3.0.0** | **歌单能搬家了**：歌单页新增「导出 / 导入」（一份 JSON，换浏览器、换电脑不丢；同名同曲自动跳过，不会存两份）。**文档补齐**：`docs/demo/index.html` 是一个能直接打开的**真脚本 + 假数据**预览页，`node dev/shots.mjs` 用它出截图（Chrome/Edge headless，不用装 playwright）；README 与本文档都配上了图，陈旧的安装地址（`@v0.2.0`）一并换成当前版本 |
 | **v2.7.0** | **播放器样式**：正在播放条换成「封面 + 歌名 / 歌手 · 平台 · 剩余」；当前封面会在面板顶上做一层模糊背景（Apple Music 那种），可在 设置 → 外观 → **封面当背景** 关掉，设了自定义背景时自动让位。没搬的：进度条/音量（播放器归客户端）、B 站 `#audio=`（地址按出口 IP 签名） |
 | **v2.6.0** | **插件拆开**：表情包从点歌台里独立成 `iirose/sticker.js`（15KB，Alt+E / 右下角 😀），点歌台的「表情」按钮撤掉；两者只共享中转地址（`mk_iirose_relay`）和收藏（`mk_stickers`），可以分别加载/分别给不同的人。新增 `dev/sticker-smoke.mjs`（球 / Alt+E / 搜索 / 发图 `#e` / 2 秒限速 / 收藏） |

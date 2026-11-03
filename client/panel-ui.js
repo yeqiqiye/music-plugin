@@ -928,7 +928,7 @@
             '</div>'
           : '') +
         (typeof opts.onRelayChange === 'function'
-          ? '<div class="mk-set-row"><div class="mk-meta"><b>网易云音质</b><small>无损以上要会员；拿不到会退回 320k，不会放不出来</small></div></div>' +
+          ? '<div class="mk-set-row"><div class="mk-meta"><b>音质</b><small>网易云与 QQ 共用：绿钻/会员才有无损与 320k，拿不到会自动往下降，不会放不出来</small></div></div>' +
             '<div class="mk-chips">' +
             NET_LEVELS.map((lv) => chip('neteaseLevel', lv.id, lv.label)).join('') +
             '</div>'

@@ -1049,15 +1049,36 @@ async function qqSearch({ keyword, limit, page }, env) {
   }));
 }
 
-async function qqPlayUrl(id, env) {
-  const cookie = (env && env.QQ_COOKIE) || '';
-  // QQ 的 Cookie 里 uin 常写成 o1234567890，vkey 要纯数字，这里兜一下
-  const uin = String((env && env.QQ_UIN) || '0').replace(/^o/i, '') || '0';
+// QQ 音质靠 vkey 的 filename 前缀决定：C400=128k m4a / M500=128k mp3 / M800=320k mp3 / F000=无损 flac。
+// 面板的「音质」开关（settings.neteaseLevel）会通过 level 传进来，这里翻译成 QQ 的前缀；
+// 拿不到就逐级往下降（无损 → 320k → 128k），所以不配 Cookie 时也仍然能放免费曲。
+const QQ_LEVELS = [
+  { id: 'lossless', prefix: 'F000', ext: 'flac', bps: 1411200 },
+  { id: 'high', prefix: 'M800', ext: 'mp3', bps: 320000 },
+  { id: 'standard', prefix: 'C400', ext: 'm4a', bps: 128000 },
+];
+
+function qqStartLevel(level) {
+  const l = String(level || '').toLowerCase();
+  if (/lossless|hires|jymaster|jyeffect|sky|flac/.test(l)) return 0;
+  if (/standard|128/.test(l)) return 2;
+  return 1; // higher / exhigh / 空 → 320k 起
+}
+
+async function qqVkey(id, uin, cookie, quality) {
   const payload = {
     req_0: {
       module: 'vkey.GetVkeyServer',
       method: 'CgiGetVkey',
-      param: { guid: '10000', songmid: [id], songtype: [0], uin, loginflag: 1, platform: '20' },
+      param: {
+        guid: '10000',
+        songmid: [id],
+        songtype: [0],
+        uin,
+        loginflag: 1,
+        platform: '20',
+        filename: [`${quality.prefix}${id}${id}.${quality.ext}`],
+      },
     },
     comm: { uin, format: 'json', ct: 24, cv: 0 },
   };
@@ -1068,20 +1089,47 @@ async function qqPlayUrl(id, env) {
   const infos = data?.req_0?.data?.midurlinfo || [];
   const info = infos.find((x) => x && x.purl) || null;
   const sip = (data?.req_0?.data?.sip || [])[0] || 'https://dl.stream.qqmusic.qq.com/';
-  if (!info || !info.purl) {
-    return {
-      playable: false,
-      reason: cookie ? 'vip' : 'need-cookie',
-      note: cookie
-        ? 'QQ 音乐没给地址：这首可能是付费/版权限制，或者 Cookie 过期了'
-        : '这首要绿钻：在 Worker 里配 QQ_COOKIE + QQ_UIN 后重试',
-    };
+  if (!info || !info.purl) return null;
+  return String(sip).replace(/^http:\/\//, 'https://') + info.purl;
+}
+
+// 只是探活，不下载：HEAD 拿 200/206 就算这个音质真有文件。
+async function qqReachable(url) {
+  try {
+    const res = await fetch(url, { method: 'HEAD' });
+    return res.status === 200 || res.status === 206;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function qqPlayUrl(id, env, mode, opts) {
+  const cookie = (env && env.QQ_COOKIE) || '';
+  // QQ 的 Cookie 里 uin 常写成 o1234567890，vkey 要纯数字，这里兜一下
+  const uin = String((env && env.QQ_UIN) || '0').replace(/^o/i, '') || '0';
+  const start = qqStartLevel(opts && opts.level);
+  for (let i = start; i < QQ_LEVELS.length; i += 1) {
+    const q = QQ_LEVELS[i];
+    let url = null;
+    try {
+      url = await qqVkey(id, uin, cookie, q);
+    } catch (e) {
+      url = null;
+    }
+    if (url) {
+      // 音质降级兜底：低等级账号可能给出 purl 但文件实际 404（尤其无损/320k），
+      // 标准档不校验（它是最低档，验了也没得退），其余档 HEAD 探一下再返回。
+      if (q.id === 'standard' || (await qqReachable(url))) {
+        return { playable: true, streamUrl: url, ext: q.ext, bitrate: q.bps, level: q.id };
+      }
+    }
   }
   return {
-    playable: true,
-    streamUrl: String(sip).replace(/^http:\/\//, 'https://') + info.purl,
-    ext: 'm4a',
-    bitrate: 128000,
+    playable: false,
+    reason: cookie ? 'vip' : 'need-cookie',
+    note: cookie
+      ? 'QQ 音乐没给地址：这首可能是付费/数字专辑限制，或者 Cookie 过期了'
+      : '这首要绿钻：在 Worker 里配 QQ_COOKIE + QQ_UIN 后重试',
   };
 }
 
@@ -1175,7 +1223,7 @@ const worker = {
         return json({
           ok: true,
           platforms: Object.keys(PLATFORMS),
-          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level'],
+          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level', 'qq-level'],
         });
       }
 

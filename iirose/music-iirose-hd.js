@@ -1,4 +1,4 @@
-/*! music-iirose v3.0.1 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v3.0.2 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -929,7 +929,7 @@
             '</div>'
           : '') +
         (typeof opts.onRelayChange === 'function'
-          ? '<div class="mk-set-row"><div class="mk-meta"><b>网易云音质</b><small>无损以上要会员；拿不到会退回 320k，不会放不出来</small></div></div>' +
+          ? '<div class="mk-set-row"><div class="mk-meta"><b>音质</b><small>网易云与 QQ 共用：绿钻/会员才有无损与 320k，拿不到会自动往下降，不会放不出来</small></div></div>' +
             '<div class="mk-chips">' +
             NET_LEVELS.map((lv) => chip('neteaseLevel', lv.id, lv.label)).join('') +
             '</div>'
@@ -4563,7 +4563,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '3.0.1';
+  var VERSION = '3.0.2';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
