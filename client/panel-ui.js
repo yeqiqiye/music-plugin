@@ -1500,7 +1500,7 @@
     }
 
     function songRow(s, i) {
-      // vip 可能是 null（平台没给这个字段，比如酷狗）——那就别标，省得误导「可听」其实要付费
+      // vip 可能是 null（某些源不给这个字段）——那就别标，省得误导「可听」其实要付费
       const badge =
         s.vip === true
           ? '<span class="mk-tag mk-vip">VIP/付费</span>'

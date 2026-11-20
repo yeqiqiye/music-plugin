@@ -17,7 +17,7 @@
 | 队列 | 「+ 队列」入列，上一首/下一首按队列走 |
 | 房间状态 | 面板显示「房间正在播放：歌名」（v2.7.0 起带**封面**，副标题是「歌手 · 平台 · 剩余」，面板顶上那层模糊背景就是这张封面） |
 | 兜底 | 每行的「指令」按钮复制 `@@歌名 歌手`，房间不让点播时自己粘聊天框 |
-| 酷狗 / B 站 | **需要配一个中转**（见下文），配好后自动多两个 tab |
+| QQ 音乐 / B 站 | **需要配一个中转**（见下文），配好后自动多两个 tab |
 | 会员曲（网易云） | 中转里配 `NETEASE_COOKIE` 即可；没配也能放免费曲 |
 
 > 配中转**不用开 F12**：没配过的时候右下角会多一个 **⚙**，点开填地址就行（见下文）。
@@ -33,7 +33,7 @@
 1. 打开 IIROSE → 设置里找到「引用 JS 脚本文件链接」那个对话框；
 2. 粘下面任意一行（有多个脚本就一行一个）：
    ```
-   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js
+   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.js
    ```
 3. 刷新页面（F5），进一个 **音乐分享 / 视频分享** 属性的房间。
 
@@ -41,9 +41,9 @@
 
 > 三种 CDN 地址，哪个快用哪个（内容完全一样）：
 >
-> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js`
-> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js`
-> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js`
+> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.js`
+> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.js`
+> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.js`
 
 ## 房间要求（这条最容易卡住）
 
@@ -65,18 +65,18 @@
 - 本页拿满（比如 20 条）才允许「下一页」，拿不满就是到最后一页了；
 - 翻过头会提示「没有更多了」，已经看到的结果不会被清掉。
 
-## 酷狗 / B 站：为什么需要一个中转
+## QQ 音乐 / B 站：为什么需要一个中转
 
 直连搜不到，不是漏了，是上游真卡着：
 
 | 平台 | 卡在哪 |
 |---|---|
-| 酷狗 | 搜索接口能 JSONP，但「hash → 播放地址」那个接口**不返回 CORS 头**，浏览器读不到 |
+| QQ 音乐 | 搜索能直连，但「songmid → 播放地址」的 vkey 接口**不返回 CORS 头**，而且绿钻曲要登录态（`QQ_COOKIE`）才给 |
 | B 站 | 搜索/播放地址接口有反爬，裸请求直接 **412 / 403**，必须服务端带 UA + Referer + Cookie |
 | 公共 CORS 代理 | 试过 codetabs / allorigins / corsproxy：前两个 522，最后一个现在要 API key —— 不能当正式方案 |
 
-所以酷狗和 B 站走一个**只中转元数据**的小服务（搜索 + 播放地址，都是几 KB 的 JSON）。
-音频本身：酷狗是 CDN 直链（匿名可取），B 站走中转的 `/stream` 补上 Referer 再吐给播放器。
+所以 QQ 音乐和 B 站走一个**只中转元数据**的小服务（搜索 + 播放地址，都是几 KB 的 JSON）。
+音频本身：QQ / 网易云是 CDN 直链（匿名可取），B 站走中转的 `/stream` 补上 Referer 再吐给播放器。
 
 ### 部署（Cloudflare Workers，免费额度足够）
 
@@ -92,7 +92,7 @@
 1. Cloudflare 控制台 → **Workers & Pages** → **Create application** → **Workers** → **Create Worker**
    （选 "Start with Hello World"，不要选 Pages，也不要选 Continue with GitHub）；
 2. 给个名字（例如 `music-relay`），点 **Deploy**；
-3. 点 **Edit code**（在线编辑器），把仓库里的 [`relay/worker.js`](../relay/worker.js) 整份内容
+3. 点 **Edit code**（在线编辑器），把仓库里的 [`rrelay/worker.js`](../relay/worker.js) 整份内容
    覆盖进去 —— 保留它开头的 `export default { async fetch(request) { ... } }`，再 **Deploy**；
 4. 记下地址，例如 `https://music-relay.你的子域.workers.dev`，浏览器直接打开
    `https://music-relay.你的子域.workers.dev/health` 应该看到 `{"ok":true,...}`；
@@ -103,7 +103,7 @@ localStorage.setItem('mk_iirose_relay', 'https://music-relay.你的子域.worker
 location.reload();
 ```
 
-刷新后点歌台会多出 **酷狗音乐** 和 **B 站（音频轨）** 两个 tab。没配中转时这两个 tab 不显示。
+刷新后点歌台会多出 **QQ 音乐** 和 **B 站（音频轨）** 两个 tab。没配中转时这两个 tab 不显示。
 
 > ⚠️ `*.workers.dev` 在部分网络（尤其国内）会被 DNS 污染，解析到一个不相干的 IP、连接超时。
 > 表现是：Cloudflare 控制台里预览正常，但你自己浏览器打不开 `/health`。这时候别怀疑代码，
@@ -140,10 +140,10 @@ Cloudflare 的 `workers.dev` 打不开时，同一份逻辑可以直接跑在阿
 5. 把它写进 `mk_iirose_relay`。
 
 > SCF 的函数 URL **不支持二进制响应**，所以 B 站的 `/stream` 代理用不了（会直接给 CDN 地址）。
-> 酷狗、网易云的音频都是 CDN 直链，不受影响。
+> QQ、网易云的音频都是 CDN 直链，不受影响。
 
 > 云函数的响应是「先收全再返回」，所以 B 站音频要靠 Range 分段，单个响应太大会被平台掐断
-> （SCF 约 6MB、FC 16MB）。正常播放器都是分段请求，一般没事；真遇到大文件失败，换酷狗源。
+> （SCF 约 6MB、FC 16MB）。正常播放器都是分段请求，一般没事；真遇到大文件失败，换 QQ / 网易云源。
 
 ### 不用 Cloudflare 也行
 
@@ -160,10 +160,13 @@ curl "http://127.0.0.1:8799/health"
 ### 接口（想自己实现也行）
 
 ```
-GET /search?platform=netease|kugou|bilibili&kw=..&limit=..&page=..  → { ok, data: Song[] }
-GET /playurl?platform=netease|kugou|bilibili&id=..                  → { ok, data: { playable, streamUrl, ext, bitrate } }
-GET /stream?platform=bilibili&url=..                                → 音频字节（Range 透传，补 Referer）
-GET /health                                                         → { ok, platforms }
+GET /search?platform=netease|qq|bilibili&kw=..&limit=..&page=..&type=song|user|playlist → { ok, data: Song[] }
+GET /playurl?platform=netease|qq|bilibili&id=..&level=..&quality=720|1080 → { ok, data: { playable, streamUrl, ext, bitrate } }
+GET /stream?platform=..&id=..&mode=audio|video                     → 音频/视频字节（Range 透传，补 Referer）
+GET /sticker?kw=.. / /sticker/img?u=..&s=..                         → 表情搜索 / 图片代理
+GET /lyric?platform=..&id=..                                        → 歌词
+GET /health                                                         → { ok, platforms, features, qqCookie }
+GET /health?probe=qq                                                → 再多一个 qqProbe：真取一次绿钻曲，判断 Cookie 是否过期
 ```
 
 所有响应都带 `Access-Control-Allow-Origin: *`；中转本身不存任何东西（Cookie 只以环境变量形式存在）。
@@ -177,7 +180,6 @@ GET /health                                                         → { ok, pl
 | `NETEASE_COOKIE` | 网易云搜索/取地址都带上它。**有会员时，VIP 曲能拿到真实音频** |
 | `QQ_COOKIE` | QQ 音乐绿钻曲全靠它：整条 Cookie，必须含 `uin=` 与 `qm_keyst=` |
 | `QQ_UIN` | QQ 号（纯数字）。不填会从 Cookie 的 `uin=` 里取 |
-| `KUGOU_COOKIE` | 可选；酷狗的接口会带上，对部分付费曲有用（未逐一验证） |
 | `BILI_COOKIE` | 可选但**很关键**：B 站取播放地址常被机房 IP 判成爬虫（412）。填浏览器的整条 Cookie（含 `SESSDATA`）后成功率高很多，也能解锁更清晰的视频 |
 
 ### 怎么拿到网易云 Cookie
@@ -373,7 +375,7 @@ B 站一个视频有两种播法，设置 → 点歌 → **「B 站播放」**�
   不想要就在设置里关掉「点完发一条汇总」。
 - B 站处在「外链 / 原生」模式时，整批会**降级成音频轨**（那两种模式是「一次一条消息」，不适合整批）。
 
-> 搜用户 / 歌单目前只有**网易云**支持；切到酷狗 / B 站 / QQ 会提示「该平台不支持」。
+> 搜用户 / 歌单目前只有**网易云**支持；切到 QQ / B 站会提示「该平台不支持」。
 
 ### 我的歌单（本机收藏）
 
@@ -406,7 +408,7 @@ B 站一个视频有两种播法，设置 → 点歌 → **「B 站播放」**�
 
 顶栏「表情」→ 输关键词 → 点一张就发到房间。图**不落地**，走中转：
 
-- **搜索**：中转依次试 `搜狗图片` → `Bing 图片` → `斗图啦` → `发表情` → `Giphy`（配了 `GIPHY_KEY` 才用），谁先出结果用谁；
+- **搜索**：中转依次试 `360 图片` → `百度图片` → `Bing 图片` → `Giphy`（配了 `GIPHY_KEY` 才用），谁先出结果用谁；gif 排在前面（表情包多是 gif）；
   面板上会写「来自 X」，全失败会明说「没搜到，换个词」；
 - **发图**：发的是 `中转/sticker/img?u=…&s=<签名>`，签名只对**搜出来的那几张**有效 ——
   既绕过图床防盗链（Referer 由中转补齐），又不会把中转变成「谁都能用的开放图片代理」；
@@ -415,11 +417,14 @@ B 站一个视频有两种播法，设置 → 点歌 → **「B 站播放」**�
 
 成本：每张 100–300KB，10 人每天 10 张 ≈ **450MB/月**，在 CDT 免费 20GB 内；FC 调用每月多几毛钱。
 
-已知风险：表情包多为二创/影视截图，公开房间大量发可能被管理提醒，个别房间禁图；抓 HTML 的源（斗图啦/发表情）改版后会失效，
-这时功能会自己降级到搜狗/Bing。
+已知风险：表情包多为二创/影视截图，公开房间大量发可能被管理提醒，个别房间禁图。
+
+> v3.0.3 换源的原因：`搜狗图片` 的接口现在只回 40 字节空壳，`斗图啦`/`发表情` 两个域名从阿里云出口整体不可达
+> （`fetch failed`，10 秒超时），所以改成 `360 图片` + `百度图片`——两者都直接给 JSON，实测「开心」10 秒内稳定出 20+ 张。
+> 现在 `/health` 会回 `stickerSources`，一眼就能看出这台中转认哪些源。
 
 **为什么不用微信的表情包？** 微信没有公开的表情搜索接口：客户端用的是 `storeapi.weixin.qq.com` 那套**带签名**的私有接口，
-第三方都是抓包 + 模拟，随时会被封，做成插件只会「今天能用明天全挂」。所以现在走的是搜狗/Bing/斗图啦这类公开源。
+第三方都是抓包 + 模拟，随时会被封，做成插件只会「今天能用明天全挂」。所以现在走的是 360/百度/Bing 这类公开的图片搜索。
 真要「微信味」：在微信里把表情**存成图片**再拖进聊天框手发，或者用搜索里的「微信 表情包」关键词 —— 后者能搜到大量搬运图。
 
 ### 音质（网易云 8 档 / QQ 3 档）
@@ -509,7 +514,7 @@ localStorage.setItem('mk_iirose_api', 'https://你的接口域名');
 长歌单建议分批点。
 
 **会不会只支持网易云？**
-这个版本是。QQ/酷狗/B 站的解析需要另外的接口，暂不做；想要的话用「指令」兜底，IIROSE
+这个版本是。QQ/B 站的解析需要另外的接口，暂不做；想要的话用「指令」兜底，IIROSE
 自己的客户端支持这几个平台。
 
 **刷新页面（F5）后「房间正在播放」就没了？**
@@ -608,17 +613,18 @@ __MUSIC_IIROSE__.panel.open()
 
 ## 版本与更新
 
-脚本地址里带 tag（`@v3.0.2`）。升级时把地址里的版本号改掉再刷新即可，
+脚本地址里带 tag（`@v3.0.3`）。升级时把地址里的版本号改掉再刷新即可，
 jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓存）。
 
 | 版本 | 内容 |
 |---|---|
+| **v3.0.3** | **维护版（删残留 / 补缺口 / 换表情源）**：① 清掉酷狗的全部残留（中转适配器、白名单、路由说明、前端嗅探和 31 处文档），现在三端只有网易云 / QQ / B 站；② DSH 版补上 **QQ 解析器**——之前点 QQ 只会提示「该平台暂不支持直接播放」，现在免费曲直连、绿钻曲读 `QQ_COOKIE`（凭据文件 `DSH_HOME/music-plugin/credentials.json`）；③ **表情源整体换血**：搜狗接口只回 40 字节空壳、斗图啦/发表情从阿里云出口不可达，改成 360 图片 + 百度图片（gif 优先），实测「开心」出 23 张、图 608KB 可下；④ 中转 `playCache` 加 200 条上限并清理过期项（之前只增不删）；⑤ `/health` 增加 `qqCookie`/`qqProbe`/`stickerSources`，绿钻曲放不了时先打 `/health?probe=qq` 看是不是 Cookie 过期；⑥ CI 补齐 `build-sticker`、`sticker-smoke`、`qq-level` 和独立的「布局体检」job（装 Chrome），产物一致性 diff 扩到全部 6 个产物；⑦ `jsdom` 进 `devDependencies`，缺依赖时直接报错而不是打印「跳过」假装通过；⑧ 删掉 5 个没人引用的探针脚本和 2 个硬编码本机路径的启动脚本 |
 | **v3.0.2** | **QQ 音乐修好 + 跟上音质**：之前绿钻曲全失败的根因是 Cookie 过期（实测过期 Cookie 打官方 vkey 接口返回 `104003`，且带不带 Cookie 结果完全一样；换新 Cookie 后同一首《晴天》返回 `result: 0`，18 首绿钻曲命中率 `0/18 → 18/18`）。顺带让 QQ 也跟「音质」开关走：标准 `C400` 128k m4a / 较高·极高 `M800` 320k mp3 / 无损及以上 `F000` flac，取不到就逐级降档，某档文件 404 也会退下一档，所以免费曲照样能放（实测 320k 10.8MB、flac 55.4MB）。中转 `/health` 的 features 增加 `qq-level`；新增 `dev/qq-level.mjs` 离线单测（假上游 + 换 songmid 规避 5 分钟缓存），已进 `npm test` |
 | **v3.0.1** | **修一个只在「设了自定义背景」时才出现的布局 bug**：封面那层是绝对定位的装饰，却被 `.mk-root[data-bg="1"] .mk-card>*` 那条「子元素统一 relative」的规则盖掉了，于是它以 220px 的高度回到文档流 —— 搜索框和平台 tab 之间空出一大块、列表被压到 81px。修法是给 `.mk-hero` 补一条更高优先级的 absolute 规则。另加 `node dev/layout-check.mjs`（headless Chrome 量坐标，无背景 / 有背景两种状态各跑一遍），已进 `npm test` |
 | **v3.0.0** | **歌单能搬家了**：歌单页新增「导出 / 导入」（一份 JSON，换浏览器、换电脑不丢；同名同曲自动跳过，不会存两份）。**文档补齐**：`docs/demo/index.html` 是一个能直接打开的**真脚本 + 假数据**预览页，`node dev/shots.mjs` 用它出截图（Chrome/Edge headless，不用装 playwright）；README 与本文档都配上了图，陈旧的安装地址（`@v0.2.0`）一并换成当前版本 |
 | **v2.7.0** | **播放器样式**：正在播放条换成「封面 + 歌名 / 歌手 · 平台 · 剩余」；当前封面会在面板顶上做一层模糊背景（Apple Music 那种），可在 设置 → 外观 → **封面当背景** 关掉，设了自定义背景时自动让位。没搬的：进度条/音量（播放器归客户端）、B 站 `#audio=`（地址按出口 IP 签名） |
 | **v2.6.0** | **插件拆开**：表情包从点歌台里独立成 `iirose/sticker.js`（15KB，Alt+E / 右下角 😀），点歌台的「表情」按钮撤掉；两者只共享中转地址（`mk_iirose_relay`）和收藏（`mk_stickers`），可以分别加载/分别给不同的人。新增 `dev/sticker-smoke.mjs`（球 / Alt+E / 搜索 / 发图 `#e` / 2 秒限速 / 收藏） |
-| **v2.5.0** | 新增**表情包面板**（顶栏「表情」）：网搜（中转依次试 搜狗 / Bing / 斗图啦 / 发表情 / Giphy）→ 点一张发到房间；发的是**带签名的中转地址**（绕过防盗链 + 防开放代理）；限速 2 秒一张、单张 ≤3MB、脏词过滤；发过的自动进本机收藏（60 张）。中转新增 `/sticker`、`/sticker/img` 与 `STICKER_SECRET` |
+| **v2.5.0** | 新增**表情包面板**（顶栏「表情」）：网搜（中转依次试图片搜索源，v3.0.3 起是 360 / 百度 / Bing / Giphy）→ 点一张发到房间；发的是**带签名的中转地址**（绕过防盗链 + 防开放代理）；限速 2 秒一张、单张 ≤3MB、脏词过滤；发过的自动进本机收藏（60 张）。中转新增 `/sticker`、`/sticker/img` 与 `STICKER_SECRET` |
 | **v2.4.1** | **修「锁定后解不开」**：歌词窗现在被夹在可见范围内（整块留在视口里、顶部给按钮条留 30px），拖到边缘、锁定、改字号、旋转屏幕都会重新夹一次，锁定时 🔓 一定点得到；设置 → 外观新增**「重置歌词窗」**保底键（回默认位置 + 解锁 + 字号/行数复位，并清掉本机记的位置） |
 | **v2.4.0** | **房间自带歌词面板能同步了**：`&1` 帧的 `l` 字段从 `null` 改成**整段 LRC**（点播前从 `中转 /lyric` 取；有译文合成 `[时间] 原文 \| 译文`，与 IIROSE-MEDIA-WEB 同款）——全房间的人都能看到跟着时间轴滚的歌词，不装面板也有效。只有网易云有歌词 |
 | **v2.3.0** | **歌词收得更快**：认准客户端的 `#radioPlayButton` 后，它一变回「播放」图标 **0.7 秒**就收（元素停了 1.2s、自然放完 1.5s），轮询从 1.5s 缩到 0.8s；**网易云 8 档音质**（标准 / 较高 / 极高 / 无损 / Hi-Res / 环绕 / 沉浸 / 母带），中转按 `level` 取流、拿不到自动退回 320k —— 实测 128k / 320k / 1676k 三档 |
@@ -656,4 +662,4 @@ jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓�
 - 依赖第三方接口 `api.shadowsee.icu`（可用 `mk_iirose_api` 换基址）。
 - 房间的「媒体白名单」如果只放行官方平台，外链可能被拒——这时用「指令」兜底。
 - B 站的音频轨是 `m4s`（`application/octet-stream`），个别播放器可能按后缀猜格式；已经能播，
-  但如果遇到某台设备不响，优先换一首或换酷狗源。
+  但如果遇到某台设备不响，优先换一首或换 QQ 源。

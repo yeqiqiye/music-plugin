@@ -2,7 +2,7 @@
  * 云函数产物（relay/serverless.js）的离线自检：不联网，只验证「event → 响应」这一层对不对。
  *
  *   node dev/serverless-smoke.mjs
- *   RELAY_NET=1 node dev/serverless-smoke.mjs    # 额外跑一次真实酷狗搜索
+ *   RELAY_NET=1 node dev/serverless-smoke.mjs    # 额外跑一次真实 QQ 搜索
  *
  * 覆盖：阿里云 FC 与腾讯云 SCF 两种 event 形状、根路径说明书、404、CORS 头、base64 响应体。
  */
@@ -89,10 +89,10 @@ check('腾讯云函数URL：queryString 对象被解析', /不支持的平台/.t
 if (process.env.RELAY_NET === '1') {
   try {
     const searched = await handler(
-      fcEvent('/search', { platform: 'kugou', kw: '晴天', limit: '2', page: '1' }),
+      fcEvent('/search', { platform: 'qq', kw: '晴天', limit: '2', page: '1' }),
     );
     const body = decode(searched);
-    check('联网：酷狗搜索经适配层可用', searched.statusCode === 200 && body.json?.data?.length > 0, body.text.slice(0, 80));
+    check('联网：QQ 搜索经适配层可用', searched.statusCode === 200 && body.json?.data?.length > 0, body.text.slice(0, 80));
   } catch (err) {
     console.log('跳过联网用例：' + String((err && err.message) || err));
   }

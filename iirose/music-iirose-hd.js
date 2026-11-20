@@ -1,4 +1,4 @@
-/*! music-iirose v3.0.2 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v3.0.3 (HD) —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -1501,7 +1501,7 @@
     }
 
     function songRow(s, i) {
-      // vip 可能是 null（平台没给这个字段，比如酷狗）——那就别标，省得误导「可听」其实要付费
+      // vip 可能是 null（某些源不给这个字段）——那就别标，省得误导「可听」其实要付费
       const badge =
         s.vip === true
           ? '<span class="mk-tag mk-vip">VIP/付费</span>'
@@ -4563,7 +4563,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '3.0.2';
+  var VERSION = '3.0.3';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'hd';
@@ -4772,7 +4772,7 @@
       });
   }
 
-  /** 中转（可选）：配了这个才有酷狗 / B 站 */
+  /** 中转（可选）：配了这个才有 QQ 音乐 / B 站 */
   function relayBase() {
     var raw = String(ls(LS.relay, '') || '').trim().replace(/\/+$/, '');
     if (!raw) return '';
@@ -4977,7 +4977,7 @@
     var link = song.url || '';
     var isVideo = Boolean(info && info.mode === 'video');
     var bitrate = isVideo ? Number(info && info.qn) || '' : Math.round((Number(info && info.bitrate) || 320000) / 1000);
-    // 音频用各平台标记（@0 网易 / @4 酷狗 / =0 B 站音频）；
+    // 音频用各平台标记（@0 网易 / @2 QQ / @4 酷狗[历史] / =0 B 站音频）；
     // 视频统一用「通用视频」=1：我们给的是一条普通 mp4 直链，不是 B 站播放器内部的地址，
     // 用 !3 会让对端按「B 站视频」去解析/校验，反而放不出来。
     var mark = isVideo ? '=1' : TYPE_MARK[song.platform] || '@0';
@@ -5312,7 +5312,7 @@
       '<div style="font-size:12.5px;color:#93a1b8;line-height:1.7;margin-bottom:12px">' +
       '填你已经部署好的中转（Cloudflare Worker 或云函数），例如 ' +
       '<code style="color:#cfe6ff">https://music-relay.yeqiqiye.xyz</code>。<br>' +
-      '配好后会多出「酷狗音乐」「B 站」两个 tab；如果中转里配了自己的 Cookie，网易云 VIP 曲也能放。' +
+      '配好后会多出「QQ 音乐」「B 站」两个 tab；中转里配了 Cookie 的话，网易云 / QQ 的会员曲也能放。' +
       '</div>' +
       '<input data-mk-input placeholder="https://music-relay.你的域名" ' +
       'style="width:100%;box-sizing:border-box;background:#1b2432;color:inherit;border:1px solid #2b3444;' +

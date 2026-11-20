@@ -2,7 +2,7 @@
  * 面板新功能：搜用户 / 搜歌单 / 歌单详情 / 批量入队 / 移动端样式。
  *
  * 用法：node dev/scopes-jsdom.mjs
- * 没装 jsdom 会跳过（CI 里会装）。
+ * 需要 jsdom（已写进 devDependencies，npm install 就有）。
  */
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -15,8 +15,9 @@ let JSDOM;
 try {
   ({ JSDOM } = await import('jsdom'));
 } catch {
-  console.log('跳过：没装 jsdom（可选依赖）。npm i -D jsdom 后可以本地跑。');
-  process.exit(0);
+  // 宁可红也别静默跳过：跳过会让人以为「测试全绿」，其实这一整套没跑。
+  console.error('缺少 jsdom：先跑 npm install（jsdom 已写进 devDependencies）');
+  process.exit(1);
 }
 
 const failures = [];

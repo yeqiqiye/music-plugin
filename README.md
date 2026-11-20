@@ -25,7 +25,7 @@ IIROSE 版只需要一个 https 链接，**不需要装任何东西、不需要�
 | 平台 | 搜索 | 直接播放 | 说明 |
 |---|---|---|---|
 | 网易云音乐 | ✅ | ✅ mp3 128k/320k | `fee=1`（版权锁/VIP）拿不到音频，会明确提示并给「打开」跳转 |
-| QQ 音乐 | ✅ | ✅ m4a 128k（配 `QQ_COOKIE` 可放绿钻） | 酷狗已下线，用 QQ 音乐平替 |
+| QQ 音乐 | ✅ | ✅ m4a 128k / mp3 320k / flac（配 `QQ_COOKIE` 可放绿钻） | 绿钻 Cookie 约 5 天会失效，过期后只剩免费曲 |
 | B 站 | ✅ | ✅ 视频（默认）/ 音频轨 | 视频走 html5 直链，客户端直连 CDN，不占中转流量 |
 
 播放器：播/暂停、上一首/下一首、进度条拖动、音量、**听歌列表（顶栏「队列」）**；歌单支持**全部点歌**和**多选点歌**。
@@ -65,7 +65,7 @@ host（Node 侧，lib/）                       client（浏览器侧，client/ 
 
 ## 安全边界
 
-- `/music/api/stream` 是**域名白名单**代理（`.music.126.net` / `.kugou.com` / `.bilivideo.com` 等），
+- `/music/api/stream` 是**域名白名单**代理（`.music.126.net` / `.tc.qq.com` / `.bilivideo.com` 等），
   不在白名单一律 403 —— 否则这个路由会变成任意外网中转。
 - 登录只接受用户自己粘贴的 Cookie，存 `%DSH_HOME%/music-plugin/credentials.json`（0600）；
   完整 Cookie 永不回传前端、不写日志。
@@ -80,7 +80,7 @@ node scripts/build-iirose.mjs     # 构建 iirose/music-iirose.js（IIROSE 版�
 npm run build:all                 # 两个一起构建
 npm test                          # CI 跑的就是这一步：三套测试
 node dev/try-adapters.mjs 周杰伦   # 四个平台搜索是否还通（上游随时可能变）
-node dev/probe-playurl.mjs        # 播放地址是否还能拿到（容器/码率/Range）
+node dev/layout-check.mjs         # 面板布局体检（headless Chrome，看有没有空隙）
 node dev/smoke-client.mjs         # 假 DOM 跑真实 client.js：Alt+T、面板挂载、播放链路
 node dev/panel-jsdom.mjs          # 真 DOM（需 npm i -D jsdom；没装会自跳过）
 node dev/iirose-smoke.mjs         # 真 DOM 跑 IIROSE 版：点播两帧逐字段断言
@@ -100,7 +100,7 @@ CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
 在 IIROSE 里：设置 →「引用 JS 脚本文件链接」→ 粘一行（多个脚本一行一个）：
 
 ```
-https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.js
+https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.js
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，
@@ -109,7 +109,7 @@ https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.2/iirose/music-iirose.
 「房间正在播放」会记在本机：**刷新页面（F5）还能接回来**，按服务器推来的真实时长**放完自动收尾**
 （播放信息和歌词窗一起收掉）；歌词是独立悬浮窗，可拖位置、可锁定、1 / 3 / 5 行、右下角拖宽度。
 
-想连**酷狗 / B 站**：这两个平台浏览器直连被 CORS/反爬挡住，需要一个只中转元数据的小服务。
+想连 **QQ 音乐 / B 站**：这两个平台浏览器直连被 CORS/反爬挡住，需要一个只中转元数据的小服务。
 仓库里给了现成的 [`relay/worker.js`](relay/worker.js)（Cloudflare Worker，粘上去就能用），
 配好后 `localStorage.setItem('mk_iirose_relay', 'https://你的地址')` 刷新即多两个 tab。
 

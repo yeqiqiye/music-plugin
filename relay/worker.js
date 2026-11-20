@@ -1,24 +1,30 @@
 /**
- * 点歌台中转（可选）—— 让 IIROSE 版也能搜酷狗 / B 站。
+ * 点歌台中转（可选）—— 让 IIROSE 版也能搜网易云 / QQ 音乐 / B 站。
  *
  * 为什么必须有它：
- *   · 酷狗：搜索能 JSONP，但「hash → 播放地址」那个接口不带 CORS，浏览器读不到
+ *   · 网易云：部分曲目要 VIP Cookie（NETEASE_COOKIE），/api 接口对浏览器也有额外限制
+ *   · QQ 音乐：vkey 要登录态（QQ_COOKIE），免费曲也需要 uin
  *   · B 站：搜索/播放地址接口有反爬（裸请求 412/403），必须由服务端带 UA/Referer/Cookie
- * 它只中转**元数据**（搜索 + 播放地址，都是几 KB 的 JSON），音频直链仍然是 CDN 直连，
- * 所以流量和成本都可以忽略。
+ * 它只中转**元数据**（搜索 + 播放地址，都是几 KB 的 JSON），音频直链多数由浏览器直连，
+ * 只有 B 站视频、以及需要 Referer 的音频才由 /stream 真实转发字节。
  *
- * 部署（Cloudflare Workers，免费额度足够）：
- *   1. 新建 Worker，把本文件内容粘进去（或 wrangler deploy）
- *   2. 记下地址，例如 https://music-relay.你的子域.workers.dev
- *   3. 在 IIROSE 控制台执行：localStorage.setItem('mk_iirose_relay', 'https://music-relay.你的子域.workers.dev')
- *   4. 刷新页面 —— 点歌台会多出「酷狗音乐」「B 站」两个 tab
+ * 部署（阿里云函数计算 FC3 / Cloudflare Workers 都行）：
+ *   1. 建函数，入口用 scripts/build-relay.mjs 生成的 relay/serverless.js
+ *   2. 记下地址，例如 https://music-relay-xxx.cn-shenzhen.fcapp.run
+ *   3. 在 IIROSE 控制台执行：localStorage.setItem('mk_iirose_relay', 'https://你的中转地址')
+ *   4. 刷新页面 —— 点歌台会出现「网易云」「QQ 音乐」「B 站」三个来源
  *
  * 想在 VPS / 家里电脑上跑：见同目录 dev-server.mjs（同一份逻辑，Node 起个 http 服务）。
  *
  * 接口：
- *   GET /search?platform=kugou|bilibili&kw=..&limit=..&page=..   → Song[]
- *   GET /playurl?platform=kugou|bilibili&id=..                   → { playable, streamUrl, ext, bitrate }
- *   GET /health                                                  → { ok: true }
+ *   GET /search?platform=netease|qq|bilibili&kw=..&limit=..&page=..&type=song|user|playlist → Song[]
+ *   GET /playurl?platform=netease|qq|bilibili&id=..&level=..&quality=720|1080 → { playable, streamUrl, ext, bitrate }
+ *   GET /stream?platform=..&id=..&mode=audio|video  → 音频/视频字节（B 站、需要 Referer 的源）
+ *   GET /playlist?platform=..&id=..     → 歌单详情
+ *   GET /user?platform=..&uid=..        → 用户歌单
+ *   GET /lyric?platform=..&id=..        → 歌词
+ *   GET /sticker?kw=.. / /sticker/img?u=..&s=..   → 表情搜索 / 图片代理
+ *   GET /health                         → { ok: true, platforms, features }
  * 所有响应都带 Access-Control-Allow-Origin: *（只读、无凭据）。
  */
 
@@ -259,71 +265,12 @@ async function neteaseUserPlaylists(id, env) {
   }));
 }
 
-// ------------------------------------------------------------------ 酷狗
-
-async function kugouSearch({ keyword, limit, page }) {
-  const url =
-    'https://songsearch.kugou.com/song_search_v2?keyword=' +
-    encodeURIComponent(keyword) +
-    '&page=' +
-    page +
-    '&pagesize=' +
-    limit;
-  const data = await fetchJson(url, { referer: 'https://www.kugou.com/' });
-  const list = data?.data?.lists ?? [];
-  return list.map((s) => {
-    // 注意：song_search_v2 现在把 Privilege / PayType 一律返回 0，判断不出是否付费，
-    // 硬标「可听」会误导（其实点下去可能提示「需要付费」），所以这里给 null = 未知。
-    const vip = null;
-    return {
-      platform: 'kugou',
-      // 酷狗要用 FileHash 才能换播放地址
-      id: String(s.FileHash ?? s.ID ?? ''),
-      title: s.SongName ?? '',
-      artists: [s.SingerName].filter(Boolean),
-      album: s.AlbumName ?? '',
-      durationMs: seconds((Number(s.Duration) || 0) * 1000),
-      cover: null,
-      vip,
-      playable: true,
-      url: s.Audioid
-        ? `https://www.kugou.com/mixsong/${s.Audioid}.html`
-        : 'https://www.kugou.com/',
-    };
-  });
-}
-
-async function kugouPlayUrl(id, env) {
-  const cookie = ['kg_mid=1', (env && env.KUGOU_COOKIE) || ''].filter(Boolean).join('; ');
-  const data = await fetchJson(
-    'https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=' + encodeURIComponent(id),
-    { referer: 'https://www.kugou.com/', cookie },
-  );
-  if (!data?.url) {
-    const raw = String(data?.error || '');
-    if (/付费|购买|vip/i.test(raw)) {
-      return {
-        playable: false,
-        reason: 'paid',
-        note: '酷狗把这首标为付费曲，接口直接拒绝（会员 Cookie 也无效）。换一个免费版本，或切到网易云源。',
-      };
-    }
-    return { playable: false, reason: 'no-url', note: raw || '酷狗没有返回可播放地址' };
-  }
-  return {
-    playable: true,
-    streamUrl: https(data.url),
-    ext: data.extName || 'mp3',
-    bitrate: (Number(data.bitRate) || 0) * 1000 || null,
-  };
-}
-
 // ------------------------------------------------------------------ B 站
 
 /**
  * B 站的风控按 IP 判定，Cloudflare Workers 的出口 IP 很容易吃到 412。
  * 这里给一套尽量像真浏览器的头 + 每次冷启动生成一个 buvid3（固定 0 太假）。
- * 仍然可能被拦 —— 拦了就让用户换酷狗，或用国内云函数部署（出口 IP 在国内更容易过）。
+ * 仍然可能被拦 —— 拦了就换网易云 / QQ，或用国内云函数部署（出口 IP 在国内更容易过）。
  */
 function makeBuvid3() {
   const hex = (n) => Array.from({ length: n }, () => '0123456789ABCDEF'[Math.floor(Math.random() * 16)]).join('');
@@ -551,7 +498,7 @@ async function bilibiliPlayUrlInner(id, mode, headers, opts, env) {
 
 /**
  * B 站的音频 CDN 会在部分节点上校验 Referer（裸请求 403），所以 B 站走 /stream 中转；
- * 酷狗的直链匿名可取（实测 206），就不占中转流量了。
+ * QQ / 网易云的直链匿名可取（实测 206），就不占中转流量了。
  *
  * 白名单是硬边界：/stream 不能变成任意外网中转。
  */
@@ -560,7 +507,6 @@ const AUDIO_HOSTS = [
   '.bilivideo.cn',
   '.hdslb.com',
   '.mountaintoys.cn',
-  '.kugou.com',
   '.music.126.net',
   // QQ 音乐：aqqmusic.tc.qq.com / dl.stream.qqmusic.qq.com 这些（vkey 可能绑出口 IP，所以要能走代理）
   '.tc.qq.com',
@@ -579,15 +525,14 @@ function allowedAudioHost(u) {
   return AUDIO_HOSTS.some((suffix) => host.endsWith(suffix));
 }
 
-const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', kugou: 'https://www.kugou.com/', qq: 'https://y.qq.com/' };
+const UPSTREAM_REFERER = { bilibili: 'https://www.bilibili.com/', qq: 'https://y.qq.com/' };
 
 // ------------------------------------------------------------ 表情包（搜图 + 图片代理）
 // 只做两件事：把「搜图」和「取图」都收在中转里，面板只认我们给的地址。
 // 这样：① 防盗链拿不到图的问题由中转解决；② 白名单挡住「变成开放图片代理」。
 const STICKER_HOSTS = [
-  '.doutula.com',
-  '.soutula.com',
-  '.fabiaoqing.com',
+  '.baidu.com',
+  '.bdimg.com',
   '.sinaimg.cn',
   '.hdslb.com',
   '.giphy.com',
@@ -596,6 +541,10 @@ const STICKER_HOSTS = [
   '.byteimg.com',
   '.douyinpic.com',
 ];
+
+// 360 图片的 CDN 是按 p0.ssl.qhimgs1.com / qhimgs2 / qhimgs3 … 分片的，写死后缀会漏，
+// 所以单独给一条正则兜住同族域名。
+const STICKER_HOST_RE = /(^|\.)qh(img|imgc|imgs\d|msg|res\d?)\.com$/;
 
 // 脏词/18+：搜索词和结果标题都过一遍（宁可少搜，别往房间里塞不该有的东西）
 const STICKER_BLOCK = ['色情', '裸', '做爱', '约炮', '娇喘', '18禁', '黄图', '强奸', '幼女', '正太', '萝莉控', '调教'];
@@ -614,26 +563,36 @@ async function stickerSig(u, env) {
   }
 }
 
-/** 搜狗图片：直接给 JSON，省得解析 HTML */
-async function stickerSogou(kw, page) {
-  const start = (Math.max(1, Number(page) || 1) - 1) * 48;
+/**
+ * 360 图片：直接给 JSON，字段是 list[].img（原图）/ list[].thumb（缩略）。
+ * 这里的「表情包」就是普通图片搜索，所以排序时把 gif 往前放——表情包大多是 gif。
+ */
+async function stickerSo360(kw, page) {
+  const sn = (Math.max(1, Number(page) || 1) - 1) * 30;
   const url =
-    'https://pic.sogou.com/napi/pc/searchList?mode=1&start=' + start + '&xml_len=48&query=' + encodeURIComponent(kw);
+    'https://image.so.com/j?q=' +
+    encodeURIComponent(kw) +
+    '&src=srp&correct=' +
+    encodeURIComponent(kw) +
+    '&sn=' +
+    sn +
+    '&pn=30';
   const res = await fetch(url, {
-    headers: { 'user-agent': UA, referer: 'https://pic.sogou.com/' },
+    headers: { 'user-agent': UA, referer: 'https://image.so.com/' },
     redirect: 'follow',
     signal: AbortSignal.timeout(12000),
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const j = await res.json();
-  const items = (j && j.data && j.data.items) || [];
+  const items = (j && j.list) || [];
   return items
     .map((it) => ({
-      url: it.picUrl || it.oriPicUrl || it.thumbUrl || '',
-      thumb: it.thumbUrl || it.picUrl || '',
+      url: it.img || it.thumb || '',
+      thumb: it.thumb || it.img || '',
       title: it.title || '',
     }))
-    .filter((x) => x.url);
+    .filter((x) => x.url)
+    .sort((a, b) => (/\.gif(\?|$)/i.test(b.url) ? 1 : 0) - (/\.gif(\?|$)/i.test(a.url) ? 1 : 0));
 }
 
 /** Bing 图片：async 接口回 HTML，murl 里是原图 */
@@ -675,7 +634,7 @@ function allowedStickerHost(u) {
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
   const host = parsed.hostname.toLowerCase();
-  return STICKER_HOSTS.some((suffix) => host.endsWith(suffix));
+  return STICKER_HOSTS.some((suffix) => host.endsWith(suffix)) || STICKER_HOST_RE.test(host);
 }
 
 function stickerBlocked(text) {
@@ -683,57 +642,31 @@ function stickerBlocked(text) {
   return STICKER_BLOCK.some((w) => s.includes(w));
 }
 
-/** 斗图啦：搜索结果页里图片在 data-original 上 */
-async function stickerDoutula(kw) {
-  const url = 'https://www.doutula.com/search?keyword=' + encodeURIComponent(kw);
-  const res = await fetch(url, {
-    headers: { 'user-agent': UA, referer: 'https://www.doutula.com/' },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const html = await res.text();
-  const out = [];
-  const re = /data-original="(https?:\/\/[^"]+)"/g;
-  let m;
-  while ((m = re.exec(html)) && out.length < 40) {
-    const u = m[1];
-    if (!/\.(gif|jpe?g|png|webp)(\?|$)/i.test(u)) continue;
-    out.push({ url: u, thumb: u, title: '' });
-  }
-  return out;
-}
-
-/** 发表情：搜索页 <img src="/uploads/..."> */
-async function stickerFabiaoqing(kw, page) {
-  const p = Math.max(1, Number(page) || 1);
+/** 百度图片：acjson 里 data[].thumbURL / middleURL，图片在 img*.baidu.com 上 */
+async function stickerBaidu(kw, page) {
+  const pn = (Math.max(1, Number(page) || 1) - 1) * 30;
   const url =
-    'https://fabiaoqing.com/search/search/keyword/' +
+    'https://image.baidu.com/search/acjson?tn=resultjson_com&ipn=rj&word=' +
     encodeURIComponent(kw) +
-    '/type/bq/page/' +
-    p +
-    '.html';
+    '&pn=' +
+    pn +
+    '&rn=30&face=0&ie=utf-8&oe=utf-8';
   const res = await fetch(url, {
-    headers: { 'user-agent': UA, referer: 'https://fabiaoqing.com/' },
+    headers: { 'user-agent': UA, referer: 'https://image.baidu.com/', accept: 'application/json,text/plain,*/*' },
     redirect: 'follow',
     signal: AbortSignal.timeout(12000),
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const html = await res.text();
-  const out = [];
-  // 实测：图在 img.soutula.com/bmiddle/xxx.gif 上（搜图啦的 CDN），不是站内 /uploads
-  const re = /(?:src|data-original)="(https?:\/\/(?:img\.)?(?:soutula|doutula)\.com\/[^"]+\.(?:gif|jpe?g|png|webp))"/gi;
-  const seen = new Set();
-  let m;
-  while ((m = re.exec(html)) && out.length < 40) {
-    const thumb = m[1];
-    if (seen.has(thumb)) continue;
-    seen.add(thumb);
-    // bmiddle 是小图，发大图用 large（同一套路径，换目录即可）
-    const full = thumb.replace('/bmiddle/', '/large/');
-    out.push({ url: full, thumb, title: '' });
-  }
-  return out;
+  const j = await res.json();
+  return ((j && j.data) || [])
+    .filter((it) => it && typeof it === 'object')
+    .map((it) => ({
+      url: it.objURL || it.middleURL || it.thumbURL || '',
+      thumb: it.thumbURL || it.middleURL || '',
+      title: it.fromPageTitleEnc || '',
+    }))
+    .filter((x) => x.url && /^https?:\/\//i.test(x.url))
+    .sort((a, b) => (/\.gif(\?|$)/i.test(b.url) ? 1 : 0) - (/\.gif(\?|$)/i.test(a.url) ? 1 : 0));
 }
 
 /** Giphy：要 key（环境变量 GIPHY_KEY），有就一起用 */
@@ -766,10 +699,9 @@ async function stickerSearch({ kw, page }, env, origin) {
   if (stickerBlocked(keyword)) return { ok: false, error: '这个搜索词不给搜（内容过滤）' };
 
   const sources = [
-    { name: 'sogou', run: () => stickerSogou(keyword, page) },
+    { name: 'so360', run: () => stickerSo360(keyword, page) },
+    { name: 'baidu', run: () => stickerBaidu(keyword, page) },
     { name: 'bing', run: () => stickerBing(keyword, page) },
-    { name: 'doutula', run: () => stickerDoutula(keyword) },
-    { name: 'fabiaoqing', run: () => stickerFabiaoqing(keyword, page) },
     { name: 'giphy', run: () => stickerGiphy(keyword, env) },
   ];
   const tried = [];
@@ -819,12 +751,13 @@ async function proxyStickerImage(request, target, env, sig) {
     return new Response('拒绝：不在图片域名白名单内（' + host + '）', { status: 403, headers: CORS });
   }
   // 图床大多认 Referer：发图时用「抓它的那个站点」，不是图床自己的域名
-  let referer = 'https://fabiaoqing.com/';
+  let referer = '';
   try {
     const h = new URL(target).hostname.toLowerCase();
-    if (h.endsWith('.soutula.com') || h.endsWith('.doutula.com')) referer = 'https://fabiaoqing.com/';
+    if (h.endsWith('.baidu.com') || h.endsWith('.bdimg.com')) referer = 'https://image.baidu.com/';
     else if (h.endsWith('.sinaimg.cn')) referer = 'https://weibo.com/';
     else if (h.endsWith('.hdslb.com')) referer = 'https://www.bilibili.com/';
+    else if (STICKER_HOST_RE.test(h)) referer = 'https://image.so.com/';
     else referer = new URL(target).origin + '/';
   } catch {
     /* 用默认 referer */
@@ -1013,7 +946,21 @@ async function serveFile(request, path, ct) {
 
 /** 播放地址缓存：地址本身带时效（约 20 分钟），缓存 5 分钟既省上游调用又不至于过期 */
 const PLAY_CACHE_MS = 5 * 60 * 1000;
+const PLAY_CACHE_MAX = 200;
 const playCache = new Map();
+
+/**
+ * 写缓存：顺手清掉已过期条目；仍超上限时删最早插入的那条（Map 保持插入序）。
+ * 旧版只 set 不 delete，热实例跑久了内存会单调涨。
+ */
+function cacheSet(key, value) {
+  const now = Date.now();
+  for (const [k, v] of playCache) {
+    if (!v || now - v.at >= PLAY_CACHE_MS) playCache.delete(k);
+  }
+  playCache.set(key, value);
+  while (playCache.size > PLAY_CACHE_MAX) playCache.delete(playCache.keys().next().value);
+}
 
 // ---------------- QQ 音乐 ----------------
 // 搜索打 search_for_qq_cp（要 format=json，jsonp 版本会返回空）；
@@ -1140,7 +1087,6 @@ const PLATFORMS = {
     playlist: neteasePlaylist,
     userPlaylists: neteaseUserPlaylists,
   },
-  // 酷狗已下线（用 QQ 音乐平替）：不再注册平台，老客户端请求会收到「不支持的平台」
   bilibili: {
     search: bilibiliSearch,
     // 路由按 (id, env, mode) 调；B 站需要 env 里的 BILI_COOKIE
@@ -1175,9 +1121,11 @@ export const worker = {
           note: '点歌台中转已就绪；下面这些才是接口，不是给人直接访问的页面',
           endpoints: [
             '/health',
-            '/search?platform=kugou|bilibili&kw=..&limit=..&page=..',
-            '/playurl?platform=kugou|bilibili&id=..',
-            '/stream?platform=bilibili&url=..',
+            '/search?platform=netease|qq|bilibili&kw=..&limit=..&page=..',
+            '/playurl?platform=netease|qq|bilibili&id=..&level=..',
+            '/stream?platform=bilibili&id=..&mode=audio|video',
+            '/sticker?kw=..',
+            '/sticker/img?u=..&s=..',
           ],
         });
       }
@@ -1217,11 +1165,24 @@ export const worker = {
       if (url.pathname === '/health') {
         // features 让客户端判断「这台中转是不是新版」：老版本没有这个字段，
         // 面板就能提示「中转过旧、不支持 B 站视频」，省得对着旧地址反复试。
-        return json({
+        const health = {
           ok: true,
           platforms: Object.keys(PLATFORMS),
-          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level', 'qq-level'],
-        });
+          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level', 'qq-level', 'qq-probe'],
+          // 只看「有没有配」，不打网络：想知道到底还能不能用，加 ?probe=qq
+          qqCookie: Boolean(env.QQ_COOKIE),
+          stickerSources: ['so360', 'baidu', 'bing', 'giphy'],
+        };
+        if (p.get('probe') === 'qq') {
+          // 绿钻曲（周杰伦《晴天》）能不能取到地址，就是 Cookie 有没有过期的判据
+          try {
+            const probe = await qqPlayUrl('0039MnYb0qxYhV', env, 'audio', { level: 'exhigh' });
+            health.qqProbe = probe.playable ? { ok: true } : { ok: false, reason: probe.reason || '' };
+          } catch (e) {
+            health.qqProbe = { ok: false, reason: String((e && e.message) || e) };
+          }
+        }
+        return json(health);
       }
 
       if (url.pathname === '/sticker') {
@@ -1334,7 +1295,7 @@ export const worker = {
         if (!resolved) {
           resolved = await impl2.playurl(rid, env, rmode);
           if (platform !== 'bilibili' && resolved && resolved.playable) {
-            playCache.set(ckey, { at: Date.now(), value: resolved });
+            cacheSet(ckey, { at: Date.now(), value: resolved });
           }
         }
         if (!resolved || !resolved.playable || !resolved.streamUrl) {
@@ -1388,15 +1349,9 @@ export const worker = {
         const quality = p.get('quality') === '1080' ? '1080' : '720';
         const data = await impl.playurl(id, env, mode, { quality, level });
 
-        // 酷狗从 Cloudflare 出口很容易被限流，给一条能照着做的提示
-        if (data && data.playable === false && /频繁|too\s*frequent/i.test(String(data.note || ''))) {
-          data.note = '酷狗这边限流了（Cloudflare 出口 IP 被判定为高频）。等 1–2 分钟再试；要稳定就把中转部署到国内云函数。';
-          data.rateLimited = true;
-        }
-
         // 注意：下面会改写 data.streamUrl（B 站换成 /stream?id=... ），
         // 所以缓存里要存一份**副本**，否则二次读缓存拿到的是被改写过的地址。
-        if (cacheable && data && data.playable) playCache.set(cacheKey, { at: Date.now(), value: { ...data } });
+        if (cacheable && data && data.playable) cacheSet(cacheKey, { at: Date.now(), value: { ...data } });
 
         // B 站的签名地址认出口 IP：这里只回「id + mode」，让 /stream 当场解析当场拉流。
         // 腾讯云「函数 URL」不支持二进制响应，那种运行时下只能直接给 CDN 地址（多半 403）。
@@ -1410,7 +1365,7 @@ export const worker = {
           data.source !== 'mux'
         ) {
           if (request.headers.get('x-mr-binary') === '0') {
-            data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用酷狗/网易云';
+            data.note = '当前运行时（腾讯云函数 URL）不支持二进制代理，已直接给 CDN 地址；若播放失败请改用网易云/QQ';
           } else {
             // 地址带后缀（.mp4/.m4a）：IIROSE 的播放器会看扩展名挑播放器，
             // 纯 /stream?id=... 没有后缀时它可能当成「未知媒体」不播。
@@ -1444,7 +1399,7 @@ export const worker = {
           {
             ok: false,
             code: 'bilibili-blocked',
-            error: 'B 站把这个出口 IP 判定为异常（412）。先用酷狗，或把中转部署到国内云函数（阿里云 FC / 腾讯云 SCF）再试。',
+            error: 'B 站把这个出口 IP 判定为异常（412）。先换网易云 / QQ，或把中转部署到国内云函数（阿里云 FC / 腾讯云 SCF）再试。',
           },
           502,
         );

@@ -226,7 +226,7 @@
       });
   }
 
-  /** 中转（可选）：配了这个才有酷狗 / B 站 */
+  /** 中转（可选）：配了这个才有 QQ 音乐 / B 站 */
   function relayBase() {
     var raw = String(ls(LS.relay, '') || '').trim().replace(/\/+$/, '');
     if (!raw) return '';
@@ -431,7 +431,7 @@
     var link = song.url || '';
     var isVideo = Boolean(info && info.mode === 'video');
     var bitrate = isVideo ? Number(info && info.qn) || '' : Math.round((Number(info && info.bitrate) || 320000) / 1000);
-    // 音频用各平台标记（@0 网易 / @4 酷狗 / =0 B 站音频）；
+    // 音频用各平台标记（@0 网易 / @2 QQ / @4 酷狗[历史] / =0 B 站音频）；
     // 视频统一用「通用视频」=1：我们给的是一条普通 mp4 直链，不是 B 站播放器内部的地址，
     // 用 !3 会让对端按「B 站视频」去解析/校验，反而放不出来。
     var mark = isVideo ? '=1' : TYPE_MARK[song.platform] || '@0';
@@ -766,7 +766,7 @@
       '<div style="font-size:12.5px;color:#93a1b8;line-height:1.7;margin-bottom:12px">' +
       '填你已经部署好的中转（Cloudflare Worker 或云函数），例如 ' +
       '<code style="color:#cfe6ff">https://music-relay.yeqiqiye.xyz</code>。<br>' +
-      '配好后会多出「酷狗音乐」「B 站」两个 tab；如果中转里配了自己的 Cookie，网易云 VIP 曲也能放。' +
+      '配好后会多出「QQ 音乐」「B 站」两个 tab；中转里配了 Cookie 的话，网易云 / QQ 的会员曲也能放。' +
       '</div>' +
       '<input data-mk-input placeholder="https://music-relay.你的域名" ' +
       'style="width:100%;box-sizing:border-box;background:#1b2432;color:inherit;border:1px solid #2b3444;' +

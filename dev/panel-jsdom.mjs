@@ -18,8 +18,9 @@ let JSDOM;
 try {
   ({ JSDOM } = await import('jsdom'));
 } catch {
-  console.log('跳过：没装 jsdom（可选依赖）。想跑这个测试就 npm i -D jsdom。');
-  process.exit(0);
+  // 宁可红也别静默跳过：跳过会让人以为「测试全绿」，其实这一整套没跑。
+  console.error('缺少 jsdom：先跑 npm install（jsdom 已写进 devDependencies）');
+  process.exit(1);
 }
 
 const failures = [];
@@ -60,7 +61,7 @@ const api = {
   async platforms() {
     return [
       { id: 'netease', label: '网易云音乐', home: 'https://music.163.com/' },
-      { id: 'kugou', label: '酷狗音乐', home: 'https://www.kugou.com/' },
+      { id: 'qq', label: 'QQ 音乐', home: 'https://y.qq.com/' },
     ];
   },
   async session() { return { loggedIn: false, nickname: null }; },
@@ -94,7 +95,7 @@ check('状态栏显示条数', /2 条/.test(rootEl.querySelector('[data-el=stat]
 // 所以高亮必须在切换之后重新查一次。
 rootEl.querySelectorAll('.mk-tab')[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await new Promise((r) => setTimeout(r, 30));
-check('切平台后再次搜索', calls.length === 2 && calls[1].platform === 'kugou', JSON.stringify(calls[1]));
+check('切平台后再次搜索', calls.length === 2 && calls[1].platform === 'qq', JSON.stringify(calls[1]));
 const activeTab = rootEl.querySelectorAll('.mk-tab')[1];
 check(
   '切中的 tab 高亮',

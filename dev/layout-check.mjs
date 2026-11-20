@@ -24,6 +24,12 @@ const CHROME_CANDIDATES = [
   process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe'),
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  // Linux / CI（浏览器由 browser-actions/setup-chrome 装到 /usr/bin/google-chrome）
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/opt/google/chrome/chrome',
 ].filter(Boolean);
 
 const TYPES = {
@@ -70,6 +76,11 @@ function dumpDom(chrome, query) {
 
 const chrome = CHROME_CANDIDATES.find((p) => existsSync(p));
 if (!chrome) {
+  // CI 里设 REQUIRE_BROWSER=1：找不到浏览器就红，免得「体检通过」其实是没跑。
+  if (process.env.REQUIRE_BROWSER) {
+    console.error('找不到 Chrome / Edge，但 REQUIRE_BROWSER=1 —— 布局体检没跑成');
+    process.exit(1);
+  }
   console.log('（跳过）没找到 Chrome / Edge；设 CHROME_PATH 指过去就能跑布局体检');
   process.exit(0);
 }

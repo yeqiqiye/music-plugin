@@ -428,7 +428,7 @@ check('只剩 3 条时「下一页」禁用', panelEl.querySelector('[data-el=pa
 // ---------------- 9. 配了中转之后：QQ 音乐 ----------------
 check('中转地址进了诊断', String(diag.relay || '').includes('relay.example.com'), String(diag.relay));
 const tabCount = panelEl.querySelectorAll('.mk-tab').length;
-check('平台 tab 变成 3 个（网易云 + QQ + B 站，酷狗已下线）', tabCount === 3, String(tabCount));
+check('平台 tab 变成 3 个（网易云 + QQ + B 站）', tabCount === 3, String(tabCount));
 
 // 切回「点播到房间」再试
 panelEl.querySelector('[data-act=mode]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -495,7 +495,7 @@ check('QQ 卡片以 m__4@2> 开头', kgCard && String(kgCard.m).startsWith('m__4
   };
   applySettings({ bili: 'video' });
   await tick(20);
-  // 平台顺序按 PLATFORM_FALLBACK：netease / kugou / qq / bilibili
+  // 平台顺序按 PLATFORM_FALLBACK：netease / qq / bilibili
   const tabIds = Array.from(panelEl.querySelectorAll('.mk-tab')).map((b) => b.dataset.tab);
   check('有 B 站 tab', tabIds.includes('bilibili'), tabIds.join(','));
   const biliTab = panelEl.querySelectorAll('.mk-tab')[tabIds.indexOf('bilibili')];

@@ -4,7 +4,7 @@
  *   npm run test:relay
  *
  * 它直接 import relay/worker.js，用 Request 调 fetch handler —— 和 Cloudflare 上跑的是同一份代码。
- * 覆盖：/health → 酷狗搜索 → 酷狗播放地址 → B 站搜索 → B 站播放地址。
+ * 覆盖：/health → 网易云搜索 → QQ 搜索/播放地址 → B 站搜索 → B 站播放地址。
  * 网络不通或上游限流时打印「跳过」，退出码 0。
  */
 import worker from '../relay/worker.js';
@@ -40,17 +40,17 @@ try {
   const health = await call('/health');
   check('/health 正常', health.ok === true, JSON.stringify(health));
 
-  const ks = await call('/search?platform=kugou&kw=' + encodeURIComponent('晴天') + '&limit=3&page=1');
-  check('酷狗搜索返回结果', ks.ok === true && ks.data.length > 0, `n=${ks.data && ks.data.length}`);
-  const kugou = ks.data && ks.data[0];
-  if (kugou) {
-    check('酷狗结果字段齐全', Boolean(kugou.id && kugou.title && kugou.platform === 'kugou'), kugou.title);
-    const kp = await call('/playurl?platform=kugou&id=' + encodeURIComponent(kugou.id));
-    check('酷狗播放地址可用', kp.ok === true && kp.data.playable === true, JSON.stringify(kp.data).slice(0, 120));
-    if (kp.data && kp.data.streamUrl) {
+  const qs = await call('/search?platform=qq&kw=' + encodeURIComponent('晴天') + '&limit=3&page=1');
+  check('QQ 搜索返回结果', qs.ok === true && qs.data.length > 0, `n=${qs.data && qs.data.length}`);
+  const qqSong = qs.data && qs.data[0];
+  if (qqSong) {
+    check('QQ 结果字段齐全', Boolean(qqSong.id && qqSong.title && qqSong.platform === 'qq'), qqSong.title);
+    const qp = await call('/playurl?platform=qq&id=' + encodeURIComponent(qqSong.id));
+    check('QQ 播放地址可用（免费曲）', qp.ok === true && qp.data.playable === true, JSON.stringify(qp.data).slice(0, 120));
+    if (qp.data && qp.data.streamUrl) {
       // 音频是 CDN 直连，这里确认它真的能被匿名取到（房间播放走同一条路）
-      const head = await probeAudio(kp.data.streamUrl);
-      check('酷狗音频匿名可取（206/200）', head.status === 200 || head.status === 206, 'HTTP ' + head.status);
+      const head = await probeAudio(qp.data.streamUrl);
+      check('QQ 音频匿名可取（206/200）', head.status === 200 || head.status === 206, 'HTTP ' + head.status);
     }
   }
 

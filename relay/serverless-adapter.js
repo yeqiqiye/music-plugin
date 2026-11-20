@@ -65,7 +65,7 @@ function pickQuery(event) {
   } else if (event?.queryStringParameters && typeof event.queryStringParameters === 'object') {
     for (const [k, v] of Object.entries(event.queryStringParameters)) add(k, v);
   } else if (event?.queryString && typeof event.queryString === 'object') {
-    // 腾讯云「函数 URL」给的是对象：{ platform: 'kugou', kw: 'xx' }
+    // 腾讯云「函数 URL」给的是对象：{ platform: 'netease', kw: 'xx' }
     for (const [k, v] of Object.entries(event.queryString)) add(k, v);
   } else if (typeof event?.queryString === 'string' && event.queryString.trim().startsWith('{')) {
     try {
