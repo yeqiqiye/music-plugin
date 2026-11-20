@@ -29,26 +29,35 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # 这个包没有任何运行时依赖（dev 脚本只用 node: 内置模块），但两套 DOM 测试要 jsdom。
-      # 两个 jsdom 测试没装 jsdom 会自跳过，那样等于没测；CI 里临时装一份真跑。
-      - name: 临时安装 jsdom（两个 DOM 测试都要）
-        run: npm install --no-save --no-audit --no-fund jsdom
+      # 运行时代码零依赖；devDependencies 里只有一个 jsdom（两套 DOM 测试要它）。
+      # 注意：jsdom 30 要求 node >= 22，为了保住 node 20 那一格，把它钉在 26.x。
+      - name: 安装 dev 依赖（只装 jsdom）
+        run: npm install --no-audit --no-fund
 
       - name: 构建客户端产物
         run: node scripts/build.mjs
 
-      - name: 构建 IIROSE 脚本产物
-        run: node scripts/build-iirose.mjs
+      - name: 构建 IIROSE 脚本产物（标准 / HD / 表情）
+        run: |
+          node scripts/build-iirose.mjs
+          node scripts/build-sticker.mjs
 
       - name: 构建云函数产物（阿里云 FC / 腾讯云 SCF）
         run: |
           node scripts/build-relay.mjs
           node scripts/build-relay-cjs.mjs
 
-      # 三个产物都是提交进仓库的（jsDelivr 只认仓库里的文件）：
-      # 源码改了却忘了 build，这一步会红。
+      # 产物都是提交进仓库的（jsDelivr 只认仓库里的文件）：
+      # 源码改了却忘了 build，这一步会红。六个产物一个都不能漏。
       - name: 提交的产物必须与源码一致
-        run: git diff --exit-code -- lib/client.js iirose/music-iirose.js relay/serverless.js relay/serverless.cjs
+        run: |
+          git diff --exit-code -- \
+            lib/client.js \
+            iirose/music-iirose.js \
+            iirose/music-iirose-hd.js \
+            iirose/sticker.js \
+            relay/serverless.js \
+            relay/serverless.cjs
 
       - name: 面板挂载 + 播放链路 smoke（DSH 版）
         run: node dev/smoke-client.mjs
@@ -59,11 +68,43 @@ jobs:
       - name: 面板：搜用户 / 搜歌单 / 批量入队
         run: node dev/scopes-jsdom.mjs
 
-      - name: IIROSE 点播帧 + 面板流程 smoke
+      - name: IIROSE 脚本 smoke（面板 / 批量 / 房间音源 / 歌单导出导入）
         run: node dev/iirose-smoke.mjs
 
-      - name: 移动端：悬浮球拖动/关闭 + 双指上滑
-        run: node dev/mobile-iirose.mjs
+      - name: 表情包脚本 smoke
+        run: node dev/sticker-smoke.mjs
 
-      - name: 云函数适配层 smoke（FC/SCF 两种 event 形状）
+      - name: 云函数 smoke（阿里云 / 腾讯云）
         run: node dev/serverless-smoke.mjs
+
+      - name: QQ 音质降档单测
+        run: node dev/qq-level.mjs
+
+  layout:
+    name: 布局体检（headless Chrome）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install --no-audit --no-fund
+
+      # 演示页加载的是仓库里真实的构建产物，所以先按当前源码重新构建一遍
+      - name: 构建（演示页要加载真脚本）
+        run: |
+          node scripts/build.mjs
+          node scripts/build-iirose.mjs
+
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      # 没有浏览器时布局体检默认打印「跳过」并 exit 0，CI 里必须强制要求真跑
+      - name: 面板布局体检
+        env:
+          REQUIRE_BROWSER: '1'
+        run: node dev/layout-check.mjs

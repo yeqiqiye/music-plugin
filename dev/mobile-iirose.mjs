@@ -164,13 +164,19 @@ check('诊断行显示手势状态', Boolean(diagLine) && /双指上滑 已挂�
 ball.style.left = '20px';
 ball.style.top = '300px';
 if (window.PointerEvent) {
-  ball.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 320, pointerId: 1 }));
-  ball.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientX: 90, clientY: 360, pointerId: 1 }));
-  ball.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, clientX: 90, clientY: 360, pointerId: 1 }));
+  // 用 MouseEvent 造 pointer 事件：jsdom 26 的 PointerEvent 不认 clientX/clientY
+  // （构造出来是 NaN），拖拽就会当成「没动」，进而误触发面板开关。
+  // 拖拽代码只读 clientX/clientY/pointerId，MouseEvent 完全够用。
+  const pe = (type, x, y) =>
+    new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  ball.dispatchEvent(pe('pointerdown', 40, 320));
+  ball.dispatchEvent(pe('pointermove', 90, 360));
+  ball.dispatchEvent(pe('pointerup', 90, 360));
 } else {
+  // 触摸版：三个监听都挂在球上（main.js 里 touchstart/touchmove/touchend 都绑 ballEl）
   touch(ball, 'touchstart', [{ clientX: 40, clientY: 320 }]);
-  touch(document, 'touchmove', [{ clientX: 90, clientY: 360 }]);
-  touch(document, 'touchend', []);
+  touch(ball, 'touchmove', [{ clientX: 90, clientY: 360 }]);
+  touch(ball, 'touchend', []);
 }
 await tick();
 const saved = window.localStorage.getItem('mk_iirose_ball');
