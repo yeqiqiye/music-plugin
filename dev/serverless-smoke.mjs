@@ -44,6 +44,9 @@ const healthBody = decode(health);
 check('阿里云：/health 返回 200', health.statusCode === 200, String(health.statusCode));
 check('阿里云：响应走 base64', health.isBase64Encoded === true);
 check('阿里云：/health 内容正确', healthBody.json?.ok === true && Array.isArray(healthBody.json?.platforms), healthBody.text);
+check('阿里云：CORS 允许 x-netease-cookie', /x-netease-cookie/.test(String(health.headers['access-control-allow-headers'] || '')), String(health.headers['access-control-allow-headers'] || ''));
+check('阿里云：/health 报告网易云 Cookie 有没有配', healthBody.json?.neteaseCookie === false, String(healthBody.json?.neteaseCookie));
+check('阿里云：features 带 netease-probe', Array.isArray(healthBody.json?.features) && healthBody.json.features.includes('netease-probe'), JSON.stringify(healthBody.json?.features || []));
 check(
   '阿里云：带 CORS 头',
   String(health.headers['access-control-allow-origin'] || health.headers['Access-Control-Allow-Origin'] || '') === '*',
@@ -74,6 +77,31 @@ check('腾讯云：/health 内容正确', scfBody.json?.ok === true, scfBody.tex
 
 const scfSearchShape = await handler(scfEvent('/nope', '{}'));
 check('腾讯云：未知路径 404', scfSearchShape.statusCode === 404, String(scfSearchShape.statusCode));
+
+// ---------------- 面板自带网易云 Cookie（x-netease-cookie 覆盖 env）----------------
+{
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = (url, init) => {
+    seen.push({ url: String(url), cookie: String((init && init.headers && init.headers.Cookie) || '') });
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ data: [{ url: 'https://m7.music.126.net/x.mp3', br: 320000, size: 1024, type: 'mp3', code: 200 }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+  };
+  try {
+    const ev = fcEvent('/playurl', { platform: 'netease', id: '1901371647', mode: 'audio' });
+    ev.headers['x-netease-cookie'] = 'MUSIC_U=panel-cookie; __csrf=tok';
+    const res = await handler(ev);
+    const body = decode(res);
+    check('面板 Cookie：网易云解析成功', res.statusCode === 200 && body.json?.data?.playable === true, body.text.slice(0, 100));
+    check('面板 Cookie：上游收到的是面板那把', seen.some((x) => /MUSIC_U=panel-cookie/.test(x.cookie)), JSON.stringify(seen.map((x) => x.cookie.slice(0, 24))));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
 
 // ---------------- 腾讯云「函数 URL」形状（httpMethod/path/queryString 对象）----------------
 const scfUrl = (path, queryString = {}) => ({ body: '', headers: { host: 'x.ap-guangzhou.tencentscf.com' }, httpMethod: 'GET', path, queryString });

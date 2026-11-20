@@ -37,6 +37,12 @@ const dom = new JSDOM('<!doctype html><html><head></head><body><div id="host"></
   url: 'http://127.0.0.1:3080/',
 });
 const { window } = dom;
+// jsdom 没实现媒体播放：本地试听分支会调 load()/play()，补成空实现（否则刷一屏 "Not implemented"）
+window.HTMLMediaElement.prototype.load = function () {};
+window.HTMLMediaElement.prototype.play = function () {
+  return Promise.resolve();
+};
+window.HTMLMediaElement.prototype.pause = function () {};
 const { document } = window;
 // jsdom 没有 clipboard，补一个桩，避免点行时报错。
 Object.defineProperty(window.navigator, 'clipboard', {

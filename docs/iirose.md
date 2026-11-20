@@ -33,7 +33,7 @@
 1. 打开 IIROSE → 设置里找到「引用 JS 脚本文件链接」那个对话框；
 2. 粘下面任意一行（有多个脚本就一行一个）：
    ```
-   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.1.0/iirose/music-iirose.js
+   https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.2.0/iirose/music-iirose.js
    ```
 3. 刷新页面（F5），进一个 **音乐分享 / 视频分享** 属性的房间。
 
@@ -41,9 +41,9 @@
 
 > 三种 CDN 地址，哪个快用哪个（内容完全一样）：
 >
-> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.1.0/iirose/music-iirose.js`
-> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.1.0/iirose/music-iirose.js`
-> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.1.0/iirose/music-iirose.js`
+> - `https://cdn.jsdelivr.net.cn/gh/yeqiqiye/music-plugin@v3.2.0/iirose/music-iirose.js`
+> - `https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.2.0/iirose/music-iirose.js`
+> - `https://gcore.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.2.0/iirose/music-iirose.js`
 
 ## 房间要求（这条最容易卡住）
 
@@ -165,8 +165,9 @@ GET /playurl?platform=netease|qq|bilibili&id=..&level=..&quality=720|1080 → { 
 GET /stream?platform=..&id=..&mode=audio|video                     → 音频/视频字节（Range 透传，补 Referer）
 GET /sticker?kw=.. / /sticker/img?u=..&s=..                         → 表情搜索 / 图片代理
 GET /lyric?platform=..&id=..                                        → 歌词
-GET /health                                                         → { ok, platforms, features, qqCookie }
+GET /health                                                         → { ok, platforms, features, qqCookie, neteaseCookie }
 GET /health?probe=qq                                                → 再多一个 qqProbe：真取一次绿钻曲，判断 Cookie 是否过期
+GET /health?probe=netease                                           → 再多一个 neteaseProbe：{ login, nickname, vip, playable }
 ```
 
 所有响应都带 `Access-Control-Allow-Origin: *`；中转本身不存任何东西（Cookie 只以环境变量形式存在）。
@@ -212,11 +213,22 @@ GET /health?probe=qq                                                → 再多�
 | 免费曲能放、绿钻/VIP 曲**全部**「拿不到播放地址」 | Cookie 过期（或复制时被截断） |
 | 只有个别曲放不出来 | 那是数字专辑/版权限制，跟 Cookie 无关 |
 
-#### 不想开 F12：直接在面板里填（v3.1.0 起）
+网易云是同一个病，只是表现不同：会员曲直接回 `url: null`（`code: -110`），过期后「免费曲能放、会员曲全挂」。判据：
 
-1. 面板右上角 **⚙ 设置** → 往下滚到「**QQ 音乐**」组；
-2. 输入框里粘上一步拿到的 Cookie（`uin=` / `qm_keyst=` 要有），点 **保存**；
-3. 点 **检查**：它拿周杰伦《晴天》（绿钻曲）真去解析一次，成功显示「✓ 有效」。
+| 现象 | 说明 |
+|---|---|
+| 免费曲、老歌能放，会员曲全挂（`code: -110` / 「没有返回可播放地址」） | `NETEASE_COOKIE` 过期 |
+| 某几首固定拿不到（`code: 404`） | 网易云没有那首的版权（周杰伦全系都是），换 QQ / B 站 |
+
+想自助确认，浏览器打开 `…/health?probe=netease`：`login` 是你的登录态、`nickname` 是昵称、`vip` 是有没有会员、`playable` 是会员曲能不能取到地址。
+
+#### 不想开 F12：直接在面板里填（v3.1.0 QQ / v3.2.0 网易云）
+
+1. 面板右上角 **⚙ 设置** → 往下滚到「**网易云音乐**」或「**QQ 音乐**」组；
+2. 输入框里粘上一步拿到的 Cookie（网易云要 `MUSIC_U=`，QQ 要 `uin=` / `qm_keyst=`），点 **保存**；
+3. 点 **检查**：网易云拿陈奕迅《孤勇者》、QQ 拿周杰伦《晴天》各真去解析一次，成功显示「✓ 有效」。
+
+两家的 Cookie 各存各的：填了网易云不会顺带修好 QQ，反之亦然。失效时对应平台的 tab 会亮红点，QQ 那类曲还会自动换成网易云同名曲。
 
 Cookie 存在**你自己的浏览器**（`localStorage`），点歌时只随那一次请求发给中转，**不写云端、不落日志**；换浏览器/换设备要重新填一次。
 
@@ -224,7 +236,10 @@ Cookie 存在**你自己的浏览器**（`localStorage`），点歌时只随那�
 - 手机上没有 F12：把下面这行存成**书签**，在 QQ 音乐网页版（已登录）点一下就把 Cookie 复制进剪贴板：
 
 ```js
+// QQ 音乐（y.qq.com）
 javascript:(()=>{navigator.clipboard.writeText(document.cookie).then(()=>alert('Cookie 已复制'),()=>alert('复制失败，手动全选复制'))})()
+// 网易云（music.163.com）：只复制 MUSIC_U / __csrf 两项就够
+javascript:(()=>{const c=document.cookie.split('; ').filter(x=>/^MUSIC_U=|^__csrf=/.test(x)).join('; ');navigator.clipboard.writeText(c).then(()=>alert('网易云 Cookie 已复制'),()=>alert('复制失败，手动复制'))})()
 ```
 > 我这边的实测（v3.0.2 发布时）：用过期 Cookie 打 QQ 官方 vkey 接口，`result` 是 `104003`，而且**带不带 Cookie 结果完全一样**（说明服务端没认到登录态）；换成有效 Cookie 后同一首《晴天》返回 `result: 0`，18 首绿钻曲命中率从 `0/18` 变成 `18/18`。
 
@@ -627,11 +642,12 @@ __MUSIC_IIROSE__.panel.open()
 
 ## 版本与更新
 
-脚本地址里带 tag（`@v3.1.0`）。升级时把地址里的版本号改掉再刷新即可，
+脚本地址里带 tag（`@v3.2.0`）。升级时把地址里的版本号改掉再刷新即可，
 jsDelivr 会按 tag 取新文件；改完记得刷新一次页面（CDN 有缓存）。
 
 | 版本 | 内容 |
 |---|---|
+| **v3.2.0** | **网易云会员曲也能在面板里修**：⓵ 设置里新增「网易云音乐」组——粘 `MUSIC_U`、保存、**检查**（拿《孤勇者》真解析一次），存在本机、换浏览器要重填；⓶ 网易云 tab 同样有**小红点**（只有检查失败才亮，与 QQ 分开判断）；⓷ Cookie 走 `x-netease-cookie` 请求头透传到中转，不写云端、不落日志，宿主侧 `lib/playurl.mjs` 也认这把（DSH 面板同样可用）；⓸ `/health?probe=netease` 直接给 `{login, nickname, vip, playable}`，自己就能判断过期没；⓹ 中转 `/playurl` 的缓存按 Cookie 尾号分桶，不会把别人的结果当命中。
 | **v3.1.0** | **QQ 会员曲不用再改中转环境变量了**：⓵ 设置里新增「QQ 音乐」组——粘 Cookie、保存、**检查**（拿《晴天》真解析一次），存在本机、只在请求时随同一次发给中转；⓶ Cookie 失效时 QQ tab 亮**小红点**，并**自动换成网易云同名曲**继续点（标题归一 + 时长差 ≤ 5 秒才换，找不到就报错，不拿别的歌顶）；⓷ 中转与 DSH 宿主的「个人 Cookie」通道：面板/桥发 `x-qq-cookie` 头 → 中转用它覆盖 `QQ_COOKIE`，缓存 key 也带上 Cookie 指纹（不会串号）；⓸ 设置里给了手机可用的**书签**（一键复制 `document.cookie`）；⓹ 新增 `dev/qq-fallback.mjs`（假上游 + jsdom，10 条断言）并进 `npm test` |
 | **v3.0.3** | **维护版（删残留 / 补缺口 / 换表情源）**：① 清掉酷狗的全部残留（中转适配器、白名单、路由说明、前端嗅探和 31 处文档），现在三端只有网易云 / QQ / B 站；② DSH 版补上 **QQ 解析器**——之前点 QQ 只会提示「该平台暂不支持直接播放」，现在免费曲直连、绿钻曲读 `QQ_COOKIE`（凭据文件 `DSH_HOME/music-plugin/credentials.json`）；③ **表情源整体换血**：搜狗接口只回 40 字节空壳、斗图啦/发表情从阿里云出口不可达，改成 360 图片 + 百度图片（gif 优先），实测「开心」出 23 张、图 608KB 可下；④ 中转 `playCache` 加 200 条上限并清理过期项（之前只增不删）；⑤ `/health` 增加 `qqCookie`/`qqProbe`/`stickerSources`，绿钻曲放不了时先打 `/health?probe=qq` 看是不是 Cookie 过期；⑥ CI 补齐 `build-sticker`、`sticker-smoke`、`qq-level` 和独立的「布局体检」job（装 Chrome），产物一致性 diff 扩到全部 6 个产物；⑦ `jsdom` 进 `devDependencies`，缺依赖时直接报错而不是打印「跳过」假装通过；⑧ 删掉 5 个没人引用的探针脚本和 2 个硬编码本机路径的启动脚本 |
 | **v3.0.2** | **QQ 音乐修好 + 跟上音质**：之前绿钻曲全失败的根因是 Cookie 过期（实测过期 Cookie 打官方 vkey 接口返回 `104003`，且带不带 Cookie 结果完全一样；换新 Cookie 后同一首《晴天》返回 `result: 0`，18 首绿钻曲命中率 `0/18 → 18/18`）。顺带让 QQ 也跟「音质」开关走：标准 `C400` 128k m4a / 较高·极高 `M800` 320k mp3 / 无损及以上 `F000` flac，取不到就逐级降档，某档文件 404 也会退下一档，所以免费曲照样能放（实测 320k 10.8MB、flac 55.4MB）。中转 `/health` 的 features 增加 `qq-level`；新增 `dev/qq-level.mjs` 离线单测（假上游 + 换 songmid 规避 5 分钟缓存），已进 `npm test` |

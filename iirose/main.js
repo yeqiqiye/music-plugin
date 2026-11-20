@@ -350,13 +350,16 @@
     var quality = (opts && opts.quality) === '1080' ? '1080' : '720';
     // 网易云音质档位：标准/较高/极高/无损/Hi-Res/环绕/沉浸/母带（借 IIROSE-MEDIA-WEB 的 8 档）
     var level = String((opts && opts.level) || 'exhigh');
-    // 面板里填的 QQ Cookie（只存在用户自己的浏览器里）：走中转时用请求头带过去
+    // 面板里填的平台 Cookie（只存在用户自己的浏览器里）：走中转时用请求头带过去
     var qqCookie = String((opts && opts.qqCookie) || '').trim();
+    var neteaseCookie = String((opts && opts.neteaseCookie) || '').trim();
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      var extra = platform === 'qq' && qqCookie ? { 'x-qq-cookie': qqCookie } : null;
+      var extra = null;
+      if (platform === 'qq' && qqCookie) extra = { 'x-qq-cookie': qqCookie };
+      else if (platform === 'netease' && neteaseCookie) extra = { 'x-netease-cookie': neteaseCookie };
       return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality, level: level }, base, extra).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };

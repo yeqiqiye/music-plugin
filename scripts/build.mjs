@@ -83,14 +83,15 @@ const bundle = `/**
         return call('/music/api/search?' + qs.toString());
       },
       /** 解析「能不能直接播 / 播哪个同源代理地址」，播放器的唯一入口 */
-      playurl({ platform, id, mode, level, quality, qqCookie }) {
+      playurl({ platform, id, mode, level, quality, qqCookie, neteaseCookie }) {
         const qs = new URLSearchParams({ platform, id: String(id) });
         if (mode) qs.set('mode', mode);
         if (level) qs.set('level', level);
         if (quality) qs.set('quality', quality);
-        // QQ Cookie 走请求头而不是 query：串很长（1.5KB），塞 URL 容易撞长度限制
+        // Cookie 走请求头而不是 query：串很长（1.5KB+），塞 URL 容易撞长度限制
         const init = {};
         if (platform === 'qq' && qqCookie) init.headers = { 'x-qq-cookie': String(qqCookie) };
+        else if (platform === 'netease' && neteaseCookie) init.headers = { 'x-netease-cookie': String(neteaseCookie) };
         return call('/music/api/playurl?' + qs.toString(), init);
       },
       platforms() {

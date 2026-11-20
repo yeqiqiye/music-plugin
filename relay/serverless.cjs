@@ -37,7 +37,7 @@ const UA =
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,OPTIONS',
-  'access-control-allow-headers': 'content-type,range,x-qq-cookie',
+  'access-control-allow-headers': 'content-type,range,x-qq-cookie,x-netease-cookie',
   'access-control-max-age': '86400',
 };
 
@@ -1171,11 +1171,32 @@ const worker = {
         const health = {
           ok: true,
           platforms: Object.keys(PLATFORMS),
-          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level', 'qq-level', 'qq-probe'],
-          // 只看「有没有配」，不打网络：想知道到底还能不能用，加 ?probe=qq
+          features: ['bilibili-video', 'html5-direct', 'stream-id', 'sticker', 'netease-level', 'qq-level', 'qq-probe', 'netease-probe'],
+          // 只看「有没有配」，不打网络：想知道到底还能不能用，加 ?probe=qq / ?probe=netease
           qqCookie: Boolean(env.QQ_COOKIE),
+          neteaseCookie: Boolean(env.NETEASE_COOKIE),
           stickerSources: ['so360', 'baidu', 'bing', 'giphy'],
         };
+        if (p.get('probe') === 'netease') {
+          // 两层判断：账号接口看登录态，会员曲看 VIP 有没有生效
+          try {
+            const acc = await fetchJson('https://music.163.com/api/nuser/account/get', netHeaders(env));
+            const profile = (acc && acc.profile) || null;
+            const vipType = profile ? Number(profile.vipType) || 0 : 0;
+            const probe = await neteasePlayUrl('1901371647', env, 'audio', { level: 'exhigh' });
+            health.neteaseProbe = {
+              ok: Boolean(profile) && Boolean(probe.playable),
+              login: Boolean(profile),
+              nickname: profile ? profile.nickname || '' : '',
+              vip: vipType > 0,
+              vipType,
+              playable: Boolean(probe.playable),
+              reason: profile ? (probe.playable ? '' : probe.reason || 'no-url') : 'cookie',
+            };
+          } catch (e) {
+            health.neteaseProbe = { ok: false, reason: String((e && e.message) || e) };
+          }
+        }
         if (p.get('probe') === 'qq') {
           // 绿钻曲（周杰伦《晴天》）能不能取到地址，就是 Cookie 有没有过期的判据
           try {
@@ -1343,10 +1364,12 @@ const worker = {
         const mode = (p.get('mode') || '') === 'video' ? 'video' : 'audio';
         const level = (p.get('level') || '').trim();
         const cacheable = platform !== 'bilibili';
-        const userCookieTag =
-          platform === 'qq' && (request.headers.get('x-qq-cookie') || '').trim()
-            ? ':u' + String((request.headers.get('x-qq-cookie') || '').trim()).slice(-12)
-            : '';
+        const headerCookie = (name) => (request.headers.get(name) || '').trim();
+        const userQQCookie = headerCookie('x-qq-cookie');
+        const userNetCookie = headerCookie('x-netease-cookie');
+        // 面板自带 Cookie 时缓存要按 Cookie 分开，否则会拿别人的结果当命中
+        const cookieTag = platform === 'qq' ? userQQCookie : platform === 'netease' ? userNetCookie : '';
+        const userCookieTag = cookieTag ? ':u' + cookieTag.slice(-12) : '';
         const cacheKey = platform + ':' + id + ':' + mode + (level ? ':' + level : '') + userCookieTag;
         const hit = cacheable ? playCache.get(cacheKey) : null;
         if (hit && Date.now() - hit.at < PLAY_CACHE_MS) {
@@ -1354,16 +1377,17 @@ const worker = {
         }
 
         const quality = p.get('quality') === '1080' ? '1080' : '720';
-        // 面板自己带的 Cookie（x-qq-cookie）优先：用户那把比部署时配的更新
-        const userQQ = (request.headers.get('x-qq-cookie') || '').trim();
-        const envFor =
-          platform === 'qq' && userQQ
-            ? {
-                ...env,
-                QQ_COOKIE: userQQ,
-                QQ_UIN: (userQQ.match(/(?:^|;\s*)uin=(\d+)/) || [])[1] || env.QQ_UIN,
-              }
-            : env;
+        // 面板自己带的 Cookie（x-qq-cookie / x-netease-cookie）优先：用户那把比部署时配的更新
+        let envFor = env;
+        if (platform === 'qq' && userQQCookie) {
+          envFor = {
+            ...env,
+            QQ_COOKIE: userQQCookie,
+            QQ_UIN: (userQQCookie.match(/(?:^|;\s*)uin=(\d+)/) || [])[1] || env.QQ_UIN,
+          };
+        } else if (platform === 'netease' && userNetCookie) {
+          envFor = { ...env, NETEASE_COOKIE: userNetCookie };
+        }
         const data = await impl.playurl(id, envFor, mode, { quality, level });
 
         // 注意：下面会改写 data.streamUrl（B 站换成 /stream?id=... ），

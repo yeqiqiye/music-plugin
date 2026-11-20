@@ -79,6 +79,12 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://iirose.com/',
 });
 const { window } = dom;
+// jsdom 没实现媒体播放：本地试听分支会调 load()/play()，补成空实现（否则刷一屏 "Not implemented"）
+window.HTMLMediaElement.prototype.load = function () {};
+window.HTMLMediaElement.prototype.play = function () {
+  return Promise.resolve();
+};
+window.HTMLMediaElement.prototype.pause = function () {};
 window.eval(src);
 
 const qqSong = {
@@ -108,6 +114,7 @@ const twin = {
 
 const calls = [];
 let qqWorks = false;
+let neteaseWorks = true;
 const api = {
   platforms: () => Promise.resolve([{ id: 'netease', label: '网易云音乐' }, { id: 'qq', label: 'QQ 音乐' }]),
   search: (o) => {
@@ -125,7 +132,9 @@ const api = {
         ? Promise.resolve({ playable: true, streamUrl: 'https://ws.stream.qqmusic.qq.com/q.m4a', ext: 'm4a' })
         : Promise.resolve({ playable: false, reason: 'vip', note: 'QQ 音乐没给地址' });
     }
-    return Promise.resolve({ playable: true, streamUrl: 'https://m7.music.126.net/n.mp3', ext: 'mp3' });
+    return neteaseWorks
+      ? Promise.resolve({ playable: true, streamUrl: 'https://m7.music.126.net/n.mp3', ext: 'mp3' })
+      : Promise.resolve({ playable: false, reason: 'no-url', note: '有 Cookie 仍拿不到' });
   },
   session: () => Promise.resolve({ loggedIn: false }),
   login: () => Promise.resolve({ loggedIn: false }),
@@ -187,6 +196,45 @@ if (input) {
   const lastQq = calls.filter((c) => c.kind === 'playurl' && c.platform === 'qq').pop();
   check('解析请求带上了面板里的 Cookie', Boolean(lastQq) && /qm_keyst=abc123/.test(String(lastQq.qqCookie || '')), JSON.stringify(lastQq || {}).slice(0, 120));
   check('Cookie 有效时不再换源', !calls.filter((c) => c.kind === 'playurl').slice(-1).some((c) => c.platform === 'netease'));
+}
+
+// ---------- 网易云 Cookie：存 / 检查 / 红点 ----------
+rootEl.querySelector('[data-act=settings]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await tick(60);
+const netInput = rootEl.querySelector('[data-el=netease-cookie]');
+check('设置里有网易云 Cookie 输入框', Boolean(netInput));
+if (netInput) {
+  netInput.value = 'MUSIC_U=00B5F1; __csrf=9ff2';
+  rootEl.querySelector('[data-act=netease-save]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  const saved = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+  check('网易云 Cookie 存进本机设置', /MUSIC_U=00B5F1/.test(String(saved.neteaseCookie || '')), String(saved.neteaseCookie || '').slice(0, 30));
+  check(
+    '网易云徽章显示已设置',
+    /已设置/.test(String((rootEl.querySelector('[data-el=netease-state]') || {}).textContent || '')),
+    String((rootEl.querySelector('[data-el=netease-state]') || {}).textContent || ''),
+  );
+
+  neteaseWorks = false;
+  rootEl.querySelector('[data-act=netease-check]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(150);
+  const warnTabs = Array.from(rootEl.querySelectorAll('.mk-tab.mk-warn')).map((b) => b.textContent);
+  check('网易云检查失败后 tab 亮红点', warnTabs.some((t) => /网易云/.test(t)), JSON.stringify(warnTabs));
+  check(
+    '检查请求带上了面板里的网易云 Cookie',
+    calls.filter((c) => c.kind === 'playurl' && c.platform === 'netease').some((c) => /MUSIC_U=00B5F1/.test(String(c.neteaseCookie || ''))),
+  );
+
+  neteaseWorks = true;
+  rootEl.querySelector('[data-act=netease-check]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(150);
+  const warnAfter = Array.from(rootEl.querySelectorAll('.mk-tab.mk-warn')).map((b) => b.textContent);
+  check('网易云检查通过后红点消失', !warnAfter.some((t) => /网易云/.test(t)), JSON.stringify(warnAfter));
+
+  rootEl.querySelector('[data-act=netease-clear]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await tick(60);
+  const cleared = JSON.parse(window.localStorage.getItem('mk_panel_settings') || '{}');
+  check('网易云 Cookie 能清空', !cleared.neteaseCookie, String(cleared.neteaseCookie || ''));
 }
 
 if (panel && panel.dispose) panel.dispose();

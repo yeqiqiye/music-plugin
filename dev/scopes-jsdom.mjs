@@ -30,6 +30,12 @@ const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 const src = readFileSync(join(root, 'client', 'panel-ui.js'), 'utf8');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'outside-only', url: 'https://iirose.com/' });
 const { window } = dom;
+// jsdom 没实现媒体播放：本地试听分支会调 load()/play()，补成空实现（否则刷一屏 "Not implemented"）
+window.HTMLMediaElement.prototype.load = function () {};
+window.HTMLMediaElement.prototype.play = function () {
+  return Promise.resolve();
+};
+window.HTMLMediaElement.prototype.pause = function () {};
 window.eval(src);
 
 const SONG = (id, title) => ({

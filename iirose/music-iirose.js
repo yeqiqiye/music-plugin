@@ -1,4 +1,4 @@
-/*! music-iirose v3.1.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
+/*! music-iirose v3.2.0 —— IIROSE 点歌台（构建产物，别直接改；源码 iirose/main.js + client/panel-ui.js） */
 ;/**
  * 点歌面板 UI —— 纯 DOM，不依赖 React / 任何外部库。
  *
@@ -578,8 +578,9 @@
       out.card = out.card !== false;
       out.batchSummary = out.batchSummary !== false;
       out.coverBg = out.coverBg !== false;
-      // QQ 音乐 Cookie：只存本机 localStorage，请求时用 x-qq-cookie 带给中转，不落云端
+      // 平台 Cookie：只存本机 localStorage，请求时用 x-qq-cookie / x-netease-cookie 带给中转，不落云端
       out.qqCookie = String(out.qqCookie == null ? '' : out.qqCookie).trim().slice(0, 8000);
+      out.neteaseCookie = String(out.neteaseCookie == null ? '' : out.neteaseCookie).trim().slice(0, 8000);
       out.neteaseLevel = NET_LEVELS.some((x) => x.id === out.neteaseLevel) ? out.neteaseLevel : 'exhigh';
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
@@ -1004,6 +1005,29 @@
             '<pre class="mk-check" data-el="relay-check"></pre>' +
             '</div>'
           : '') +
+        '<div class="mk-set-group"><h4>网易云音乐</h4>' +
+          '<div class="mk-set-row"><div class="mk-meta"><b>我的 Cookie</b><small>' +
+          (neteaseStale
+            ? '⚠ 这把已经失效：VIP 歌会放不出来（免费曲还能放），重新粘一把'
+            : settings.neteaseCookie
+              ? '已保存在本机（' + settings.neteaseCookie.length + ' 字符）· 只在你自己的浏览器里，不会传到云端'
+              : '不填也能放免费曲与大量老歌；VIP / 付费曲要填这个才拿得到地址') +
+          '</small></div>' +
+          '<span class="mk-badge" data-el="netease-state">' +
+          (neteaseStale ? '已失效' : settings.neteaseCookie ? '已设置' : '未设置') +
+          '</span></div>' +
+          '<div class="mk-bg-inputs">' +
+          '<input class="mk-input" data-el="netease-cookie" type="text" placeholder="粘 music.163.com 的 MUSIC_U=…">' +
+          '<button class="mk-btn" data-act="netease-save">保存</button>' +
+          '<button class="mk-btn mk-ghost" data-act="netease-clear">清空</button>' +
+          '<button class="mk-btn" data-act="netease-check">检查</button>' +
+          '</div>' +
+          '<p class="mk-note">拿 Cookie：电脑浏览器打开 <b>music.163.com</b> 并登录 → F12 → Console → 粘下面这行回车（只复制 MUSIC_U / __csrf 两项）：<br>' +
+          '<code class="mk-check">' +
+          esc(NETEASE_BOOKMARKLET) +
+          '</code><br>手机上用「书签」存这行，在网易云网页版点一下就复制。失效时网易云 tab 会亮红点。</p>' +
+          '<pre class="mk-check" data-el="netease-check"></pre>' +
+          '</div>' +
         '<div class="mk-set-group"><h4>QQ 音乐</h4>' +
           '<div class="mk-set-row"><div class="mk-meta"><b>我的 Cookie</b><small>' +
           (qqStale
@@ -1420,6 +1444,7 @@
           mode: 'audio',
           level: 'standard',
           qqCookie: settings.qqCookie,
+          neteaseCookie: settings.neteaseCookie,
         });
         if (info && info.playable) {
           markQQStale(false);
@@ -1440,11 +1465,59 @@
       }
     }
 
+    // ---------- 网易云 Cookie：红点 + 检查 ----------
+    // 与 QQ 同一个病：会员曲靠 Cookie，过期后「免费曲能放、会员曲全挂」。
+    const NETEASE_PROBE_SONG = '1901371647'; // 陈奕迅《孤勇者》，会员限定
+    const NETEASE_BOOKMARKLET =
+      "javascript:(()=>{const c=document.cookie.split('; ').filter(x=>/^MUSIC_U=|^__csrf=/.test(x)).join('; ');navigator.clipboard.writeText(c).then(()=>alert('网易云 Cookie 已复制'),()=>alert('复制失败，手动复制'))})()";
+    let neteaseStale = false;
+
+    function markNeteaseStale(on) {
+      const next = Boolean(on);
+      if (next === neteaseStale) return;
+      neteaseStale = next;
+      renderTabs();
+    }
+
+    async function checkNeteaseCookie() {
+      const box = elBody.querySelector('[data-el=netease-check]');
+      const put = (t) => {
+        if (box) box.textContent = t;
+      };
+      put('检查中…（拿一首会员曲试一下）');
+      try {
+        if (typeof api.playurl !== 'function') throw new Error('当前环境不支持解析播放地址');
+        const info = await api.playurl({
+          platform: 'netease',
+          id: NETEASE_PROBE_SONG,
+          mode: 'audio',
+          level: 'standard',
+          neteaseCookie: settings.neteaseCookie,
+        });
+        if (info && info.playable) {
+          markNeteaseStale(false);
+          put('✓ 有效：会员曲拿到了地址，VIP 歌现在也能放');
+          setStat('网易云 Cookie 有效');
+          return true;
+        }
+        markNeteaseStale(true);
+        put(
+          '✗ 用不了：' +
+            ((info && (info.note || info.reason)) || '拿不到地址') +
+            '\n→ 去 music.163.com 重新复制一把 Cookie 粘到上面再保存（周杰伦等无版权曲目本来就拿不到，属正常）',
+        );
+        return false;
+      } catch (err) {
+        put('✗ 检查失败：' + String((err && err.message) || err));
+        return false;
+      }
+    }
+
     function renderTabs() {
       elTabs.innerHTML = platforms
         .map(
           (p) =>
-            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}${p.id === 'qq' && qqStale ? ' mk-warn' : ''}" data-tab="${esc(p.id)}">${p.icon ? '<span class="mk-tab-ico">' + esc(p.icon) + '</span>' : ''}${esc(p.label)}</button>`,
+            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}${p.id === 'qq' && qqStale ? ' mk-warn' : ''}${p.id === 'netease' && neteaseStale ? ' mk-warn' : ''}" data-tab="${esc(p.id)}">${p.icon ? '<span class="mk-tab-ico">' + esc(p.icon) + '</span>' : ''}${esc(p.label)}</button>`,
         )
         .join('');
     }
@@ -1727,6 +1800,7 @@
         quality: settings.quality,
         level: settings.neteaseLevel,
         qqCookie: settings.qqCookie,
+        neteaseCookie: settings.neteaseCookie,
       });
       if (first && first.playable) return { song, info: first, swapped: false };
       // QQ 拿不到地址基本等于 Cookie 过期：给 tab 点亮红点
@@ -1743,6 +1817,7 @@
           mode: 'audio',
           quality: settings.quality,
           level: settings.neteaseLevel,
+          neteaseCookie: settings.neteaseCookie,
         });
       } catch {
         info = null;
@@ -1775,7 +1850,7 @@
         refreshRows();
         try {
           if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video', quality: settings.quality, level: settings.neteaseLevel });
+          const info = await api.playurl({ platform: song.platform, id: song.id, mode: 'video', quality: settings.quality, level: settings.neteaseLevel, neteaseCookie: settings.neteaseCookie });
           if (!info || !info.playable || !info.streamUrl) {
             throw new Error((info && info.note) || '拿不到视频地址');
           }
@@ -4304,6 +4379,30 @@
           } catch (err) {
             setStat('清空失败：' + esc(String((err && err.message) || err)));
           }
+        } else if (name === 'netease-save') {
+          const inp = elBody.querySelector('[data-el=netease-cookie]');
+          const val = inp ? String(inp.value || '').trim() : '';
+          if (!val) {
+            setStat('先把 Cookie 粘进输入框再保存');
+            return;
+          }
+          if (!/MUSIC_U=|__csrf=/.test(val)) {
+            setStat('这串里没有 MUSIC_U / __csrf，可能不是网易云的 Cookie');
+            return;
+          }
+          settings = normalizeSettings(Object.assign({}, settings, { neteaseCookie: val }));
+          saveSettings();
+          markNeteaseStale(false);
+          renderSettings();
+          setStat('已保存网易云 Cookie（' + val.length + ' 字符）· 只存在本机');
+        } else if (name === 'netease-clear') {
+          settings = normalizeSettings(Object.assign({}, settings, { neteaseCookie: '' }));
+          saveSettings();
+          markNeteaseStale(false);
+          renderSettings();
+          setStat('已清空网易云 Cookie（VIP 歌会放不出来，免费曲不受影响）');
+        } else if (name === 'netease-check') {
+          checkNeteaseCookie();
         } else if (name === 'qq-save') {
           const inp = elBody.querySelector('[data-el=qq-cookie]');
           const val = inp ? String(inp.value || '').trim() : '';
@@ -4740,7 +4839,7 @@
 ;(function () {
   'use strict';
 
-  var VERSION = '3.1.0';
+  var VERSION = '3.2.0';
   // 两个版本：std（默认，只有 720P）/ hd（可选 1080P）。
   // 构建时替换成具体值 —— 想给谁 1080P，就把 hd 版脚本的链接给他。
   var EDITION = 'std';
@@ -5073,13 +5172,16 @@
     var quality = (opts && opts.quality) === '1080' ? '1080' : '720';
     // 网易云音质档位：标准/较高/极高/无损/Hi-Res/环绕/沉浸/母带（借 IIROSE-MEDIA-WEB 的 8 档）
     var level = String((opts && opts.level) || 'exhigh');
-    // 面板里填的 QQ Cookie（只存在用户自己的浏览器里）：走中转时用请求头带过去
+    // 面板里填的平台 Cookie（只存在用户自己的浏览器里）：走中转时用请求头带过去
     var qqCookie = String((opts && opts.qqCookie) || '').trim();
+    var neteaseCookie = String((opts && opts.neteaseCookie) || '').trim();
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      var extra = platform === 'qq' && qqCookie ? { 'x-qq-cookie': qqCookie } : null;
+      var extra = null;
+      if (platform === 'qq' && qqCookie) extra = { 'x-qq-cookie': qqCookie };
+      else if (platform === 'netease' && neteaseCookie) extra = { 'x-netease-cookie': neteaseCookie };
       return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality, level: level }, base, extra).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
