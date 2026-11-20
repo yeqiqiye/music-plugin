@@ -16,8 +16,11 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 
-const worker = await readFile(join(root, 'relay', 'worker.js'), 'utf8');
-const adapter = await readFile(join(root, 'relay', 'serverless-adapter.js'), 'utf8');
+// 换行一律归一成 LF：Windows 上 checkout 出 CRLF 时，产物会和 CI（Linux）不一致
+const lf = (text) => text.replace(/\r\n?/g, '\n');
+
+const worker = lf(await readFile(join(root, 'relay', 'worker.js'), 'utf8'));
+const adapter = lf(await readFile(join(root, 'relay', 'serverless-adapter.js'), 'utf8'));
 
 let code = [worker, adapter].join('\n\n');
 
