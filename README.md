@@ -25,7 +25,7 @@ IIROSE 版只需要一个 https 链接，**不需要装任何东西、不需要�
 | 平台 | 搜索 | 直接播放 | 说明 |
 |---|---|---|---|
 | 网易云音乐 | ✅ | ✅ mp3 128k/320k | `fee=1`（版权锁/VIP）拿不到音频，会明确提示并给「打开」跳转 |
-| QQ 音乐 | ✅ | ✅ m4a 128k / mp3 320k / flac（配 `QQ_COOKIE` 可放绿钻） | 绿钻 Cookie 约 5 天会失效，过期后只剩免费曲 |
+| QQ 音乐 | ✅ | ✅ m4a 128k / mp3 320k / flac（配 Cookie 可放绿钻） | Cookie 约 5 天失效：可在面板里填、失效会亮红点并自动换网易云同名曲 |
 | B 站 | ✅ | ✅ 视频（默认）/ 音频轨 | 视频走 html5 直链，客户端直连 CDN，不占中转流量 |
 
 播放器：播/暂停、上一首/下一首、进度条拖动、音量、**听歌列表（顶栏「队列」）**；歌单支持**全部点歌**和**多选点歌**。
@@ -100,7 +100,7 @@ CI 会用 `git diff --exit-code` 抓「改了源码忘构建」。
 在 IIROSE 里：设置 →「引用 JS 脚本文件链接」→ 粘一行（多个脚本一行一个）：
 
 ```
-https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.js
+https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.1.0/iirose/music-iirose.js
 ```
 
 刷新页面，进「音乐分享 / 视频分享」属性的房间，按 **Alt+T**（或点右下角 ♪）打开面板，
@@ -118,7 +118,7 @@ https://fastly.jsdelivr.net/gh/yeqiqiye/music-plugin@v3.0.3/iirose/music-iirose.
 ## 已知问题
 
 - 网易云 `fee=1` 的歌**无法**直接播放（返回 `code=-110`），这是上游版权锁，不是 bug。
-- QQ 音乐只能搜索 + 跳转。
+- QQ 音乐绿钻曲需要 Cookie（约 5 天失效一次），失效后能放的只剩免费曲；面板会把放不了的那首自动换成网易云同名曲。
 - 播放地址有时效签名：`playurl.mjs` 内存缓存 5 分钟，过期会自动重新解析。
 - 面板与 `shell.overlay` 插槽的耦合很弱（面板是 `document.body` 直属节点），
   插槽注册失败也不会影响 Alt+T。

@@ -155,6 +155,7 @@
 .mk-select{background:var(--mk-input);color:inherit;border:1px solid var(--mk-line);
   border-radius:10px;padding:10px 12px;font-size:13px;outline:none}
 .mk-tabs{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap;border-bottom:1px solid var(--mk-line)}
+    .mk-tab.mk-warn::after{content:'';display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:#e05252;vertical-align:middle}
 /* 批量点歌的进度条（只在面板里，不往房间里刷） */
 .mk-batch{display:none;align-items:center;gap:8px;margin:0 16px 8px;padding:6px 10px;border-radius:9px;
   background:var(--mk-raised);border:1px solid var(--mk-line);font-size:12px;color:var(--mk-dim)}
@@ -576,6 +577,8 @@
       out.card = out.card !== false;
       out.batchSummary = out.batchSummary !== false;
       out.coverBg = out.coverBg !== false;
+      // QQ 音乐 Cookie：只存本机 localStorage，请求时用 x-qq-cookie 带给中转，不落云端
+      out.qqCookie = String(out.qqCookie == null ? '' : out.qqCookie).trim().slice(0, 8000);
       out.neteaseLevel = NET_LEVELS.some((x) => x.id === out.neteaseLevel) ? out.neteaseLevel : 'exhigh';
       out.bili =
         out.bili === 'video' || out.bili === 'native' || out.bili === 'link' ? out.bili : 'audio';
@@ -1000,6 +1003,29 @@
             '<pre class="mk-check" data-el="relay-check"></pre>' +
             '</div>'
           : '') +
+        '<div class="mk-set-group"><h4>QQ 音乐</h4>' +
+          '<div class="mk-set-row"><div class="mk-meta"><b>我的 Cookie</b><small>' +
+          (qqStale
+            ? '⚠ 这把已经失效：VIP 歌会放不出来（免费曲还能放），重新粘一把'
+            : settings.qqCookie
+              ? '已保存在本机（' + settings.qqCookie.length + ' 字符）· 只在你自己的浏览器里，不会传到云端'
+              : '不填也能放免费曲；绿钻 / 会员曲要填这个才拿得到地址') +
+          '</small></div>' +
+          '<span class="mk-badge" data-el="qq-state">' +
+          (qqStale ? '已失效' : settings.qqCookie ? '已设置' : '未设置') +
+          '</span></div>' +
+          '<div class="mk-bg-inputs">' +
+          '<input class="mk-input" data-el="qq-cookie" type="text" placeholder="粘 y.qq.com 的 document.cookie">' +
+          '<button class="mk-btn" data-act="qq-save">保存</button>' +
+          '<button class="mk-btn mk-ghost" data-act="qq-clear">清空</button>' +
+          '<button class="mk-btn" data-act="qq-check">检查</button>' +
+          '</div>' +
+          '<p class="mk-note">拿 Cookie：电脑浏览器打开 <b>y.qq.com</b> 并登录 → F12 → Console → 粘下面这行回车（会复制到剪贴板）：<br>' +
+          '<code class="mk-check">' +
+          esc(QQ_BOOKMARKLET) +
+          '</code><br>手机上用「书签」存这行，在 QQ 音乐网页版点一下就复制。约 5 天会过期，失效时 QQ tab 会亮红点。</p>' +
+          '<pre class="mk-check" data-el="qq-check"></pre>' +
+          '</div>' +
         '<div class="mk-set-row"><div class="mk-meta"><b>完成</b><small>回到搜索</small></div>' +
         '<button class="mk-btn mk-primary" data-act="settings-done">完成</button></div>' +
         (diag ? '<div class="mk-diag">' + esc(diag) + '</div>' : '') +
@@ -1365,11 +1391,59 @@
     }
     applyMode();
 
+    // ---------- QQ Cookie：红点 + 检查 ----------
+    // 绿钻曲要靠 Cookie 才拿得到地址，而它大约 5 天就会被服务端作废。
+    // 失效的信号是「免费曲能放、绿钻曲全挂」，所以固定拿一首绿钻曲去探。
+    const QQ_PROBE_SONG = '0039MnYb0qxYhV'; // 周杰伦《晴天》，绿钻限定
+    const QQ_BOOKMARKLET = "javascript:(()=>{navigator.clipboard.writeText(document.cookie).then(()=>alert('Cookie 已复制'),()=>alert('复制失败，手动全选复制'))})()";
+    let qqStale = false;
+
+    function markQQStale(on) {
+      const next = Boolean(on);
+      if (next === qqStale) return;
+      qqStale = next;
+      renderTabs();
+    }
+
+    async function checkQQCookie() {
+      const box = elBody.querySelector('[data-el=qq-check]');
+      const put = (t) => {
+        if (box) box.textContent = t;
+      };
+      put('检查中…（拿一首绿钻曲试一下）');
+      try {
+        if (typeof api.playurl !== 'function') throw new Error('当前环境不支持解析播放地址');
+        const info = await api.playurl({
+          platform: 'qq',
+          id: QQ_PROBE_SONG,
+          mode: 'audio',
+          level: 'standard',
+          qqCookie: settings.qqCookie,
+        });
+        if (info && info.playable) {
+          markQQStale(false);
+          put('✓ 有效：绿钻曲拿到了地址，VIP 歌现在也能放');
+          setStat('QQ Cookie 有效');
+          return true;
+        }
+        markQQStale(true);
+        put(
+          '✗ 用不了：' +
+            ((info && (info.note || info.reason)) || '拿不到地址') +
+            '\n→ 去 y.qq.com 重新复制一把 Cookie 粘到上面再保存',
+        );
+        return false;
+      } catch (err) {
+        put('✗ 检查失败：' + String((err && err.message) || err));
+        return false;
+      }
+    }
+
     function renderTabs() {
       elTabs.innerHTML = platforms
         .map(
           (p) =>
-            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}" data-tab="${esc(p.id)}">${p.icon ? '<span class="mk-tab-ico">' + esc(p.icon) + '</span>' : ''}${esc(p.label)}</button>`,
+            `<button class="mk-tab${p.id === current ? ' mk-on' : ''}${p.id === 'qq' && qqStale ? ' mk-warn' : ''}" data-tab="${esc(p.id)}">${p.icon ? '<span class="mk-tab-ico">' + esc(p.icon) + '</span>' : ''}${esc(p.label)}</button>`,
         )
         .join('');
     }
@@ -1600,6 +1674,82 @@
       });
     }
 
+    // ---------- QQ 放不出来时，换网易云的同一首 ----------
+    // 判据：标题（去掉括号里的版本说明）相同或互相包含 + 时长差 ≤ 5 秒，且优先 ≤ 1 秒的；
+    // 找不到就原样报错 —— 宁可提示，也不拿一首错的歌去顶。
+    function titleKey(t) {
+      return String(t || '')
+        .replace(/[（(\[【].*?[)）\]】]/g, '')
+        .replace(/[\s·・.,!?！？'"“”~～\-_]/g, '')
+        .toLowerCase();
+    }
+
+    async function neteaseTwin(song) {
+      if (typeof api.search !== 'function') return null;
+      const artist = (song.artists && song.artists[0]) || '';
+      const kw = (String(song.title || '') + (artist ? ' ' + artist : '')).trim();
+      if (!kw) return null;
+      let list = [];
+      try {
+        list = await api.search({ platform: 'netease', keyword: kw, limit: 10, page: 1 });
+      } catch {
+        return null;
+      }
+      const want = titleKey(song.title);
+      if (!want) return null;
+      const dur = Number(song.durationMs) || 0;
+      const cands = (list || [])
+        .filter((x) => {
+          if (!x || x.platform !== 'netease') return false;
+          const k = titleKey(x.title);
+          if (!k) return false;
+          return k === want || k.indexOf(want) >= 0 || want.indexOf(k) >= 0;
+        })
+        .map((x) => ({
+          song: x,
+          gap: dur && x.durationMs ? Math.abs(Number(x.durationMs) - dur) : -1,
+        }))
+        .filter((x) => x.gap < 0 || x.gap <= 5000)
+        .sort((a, b) => (a.gap < 0 ? 6000 : a.gap) - (b.gap < 0 ? 6000 : b.gap));
+      if (!cands.length) return null;
+      const best = cands[0];
+      // 时长差太多就当没找到：现场版 / 翻唱 / 剪辑版会串味
+      if (best.gap > 1000) return null;
+      return best.song;
+    }
+
+    async function resolveForPlay(song, playAs) {
+      const first = await api.playurl({
+        platform: song.platform,
+        id: song.id,
+        mode: playAs,
+        quality: settings.quality,
+        level: settings.neteaseLevel,
+        qqCookie: settings.qqCookie,
+      });
+      if (first && first.playable) return { song, info: first, swapped: false };
+      // QQ 拿不到地址基本等于 Cookie 过期：给 tab 点亮红点
+      if (song.platform === 'qq' && (!first || first.reason === 'vip')) markQQStale(true);
+      const why = (first && (first.note || first.reason)) || '拿不到可播放地址';
+      if (song.platform !== 'qq') return { song, info: first, swapped: false, why };
+      const twin = await neteaseTwin(song);
+      if (!twin) return { song, info: first, swapped: false, why };
+      let info = null;
+      try {
+        info = await api.playurl({
+          platform: 'netease',
+          id: twin.id,
+          mode: 'audio',
+          quality: settings.quality,
+          level: settings.neteaseLevel,
+        });
+      } catch {
+        info = null;
+      }
+      if (!info || !info.playable) return { song, info: first, swapped: false, why };
+      return { song: twin, info, swapped: true, why };
+    }
+
     async function playSong(song, { enqueue = true, mode } = {}) {
       if (!song) return;
       // B 站可以选音频轨/视频；其它平台只有音频
@@ -1615,7 +1765,9 @@
         }
       }
       playCurrent = song;
-      const label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+      let label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+      // 换过源的话，状态栏要一直带着这条说明（不然「正在播放」一刷就把提示盖掉了）
+      let swapNote = '';
       // 外链点播：先拿视频地址，再按 IIROSE「外链点播」格式发一条聊天消息（视频链接用 [] 包住）
       if (playAs === 'link' && song.platform === 'bilibili') {
         setNow(label, '解析视频地址…');
@@ -1658,7 +1810,16 @@
       refreshRows();
       try {
         if (typeof api.playurl !== 'function') throw new Error('当前环境不支持直接播放（缺 api.playurl）');
-        const info = await api.playurl({ platform: song.platform, id: song.id, mode: playAs, quality: settings.quality, level: settings.neteaseLevel });
+        const resolved = await resolveForPlay(song, playAs);
+        const info = resolved.info;
+        if (resolved.swapped) {
+          // QQ 这首放不出来（Cookie 过期 / 版权），换成网易云的同一首接着点
+          song = resolved.song;
+          playCurrent = song;
+          if (enqueue && playIndex >= 0 && playQueue[playIndex]) playQueue[playIndex] = song;
+          label = song.title + (song.artists && song.artists.length ? ' - ' + song.artists.join('/') : '');
+          swapNote = '（QQ 放不了，已换成网易云）';
+        }
         if (!info || !info.playable) {
           const why = (info && info.note) || (info && info.reason) || '拿不到可播放地址';
           setNow(label, '⚠ ' + why + '（可用「打开」跳去平台）');
@@ -1671,7 +1832,7 @@
           await opts.onEnqueue(song, info);
           setNow(label, '已点播到房间（' + (info.mode === 'video' ? '视频' : '音频') + '）· 等房间开始播');
           setPlayIcon(true);
-          setStat('已点播：' + esc(song.title));
+          setStat('已点播：' + esc(song.title) + swapNote);
           markPlayed(song, 'room');
           // 记一笔「房间这首在放」：刷新后接得回来，放完自动收（含歌词）
           beginRoomNow({
@@ -1693,7 +1854,7 @@
         setNowArt(song.cover || '');
       setNow(label, '播放中 · ' + (info.ext || 'audio') + (info.bitrate ? ' · ' + Math.round(info.bitrate / 1000) + 'k' : ''));
         setPlayIcon(true);
-        setStat('正在播放：' + esc(song.title));
+        setStat('正在播放：' + esc(song.title) + swapNote);
         markPlayed(song, 'local');
         return { played: true };
       } catch (err) {
@@ -2451,41 +2612,33 @@
         try {
           if (playMode !== 'room') throw new Error('本机试听模式不发房间');
           if (typeof opts.onEnqueue !== 'function') throw new Error('当前环境不支持点播到房间');
-          let info = null;
+          let resolved = null;
           try {
-            info = await api.playurl({
-              platform: song.platform,
-              id: song.id,
-              mode: batchPlayAs(song),
-              quality: settings.quality,
-              level: settings.neteaseLevel,
-            });
+            resolved = await resolveForPlay(song, batchPlayAs(song));
           } catch (e) {
             // 网络抖一下重试一次，别让整批因为一次超时就断掉
             await sleep(600);
-            info = await api.playurl({
-              platform: song.platform,
-              id: song.id,
-              mode: batchPlayAs(song),
-              quality: settings.quality,
-              level: settings.neteaseLevel,
-            });
+            resolved = await resolveForPlay(song, batchPlayAs(song));
           }
-          if (!info || !info.playable) throw new Error((info && info.note) || '拿不到播放地址');
+          const info = resolved && resolved.info;
+          if (!info || !info.playable) {
+            throw new Error((info && (info.note || info.reason)) || '拿不到播放地址');
+          }
+          const usedSong = resolved.swapped ? resolved.song : song;
           if (token.cancelled) break;
-          await opts.onEnqueue(song, info);
+          await opts.onEnqueue(usedSong, info);
           ok += 1;
-          totalMs += Number(song.durationMs) || 0;
-          markPlayed(song, 'room');
+          totalMs += Number(usedSong.durationMs) || 0;
+          markPlayed(usedSong, 'room');
           if (i === 0) {
             beginRoomNow({
-              title: song.title,
-              sub: (song.artists || []).join(' / '),
-              artists: song.artists || [],
-              durationMs: Number(song.durationMs) || 0,
-              platform: song.platform,
-              id: song.id,
-              cover: song.cover || '',
+              title: usedSong.title,
+              sub: (usedSong.artists || []).join(' / '),
+              artists: usedSong.artists || [],
+              durationMs: Number(usedSong.durationMs) || 0,
+              platform: usedSong.platform,
+              id: usedSong.id,
+              cover: usedSong.cover || '',
               startedAt: Date.now(),
               predicted: true,
             });
@@ -4150,6 +4303,30 @@
           } catch (err) {
             setStat('清空失败：' + esc(String((err && err.message) || err)));
           }
+        } else if (name === 'qq-save') {
+          const inp = elBody.querySelector('[data-el=qq-cookie]');
+          const val = inp ? String(inp.value || '').trim() : '';
+          if (!val) {
+            setStat('先把 Cookie 粘进输入框再保存');
+            return;
+          }
+          if (!/qm_keyst=|qqmusic_key=/.test(val)) {
+            setStat('这串里没有 qm_keyst / qqmusic_key，可能不是 QQ 音乐的 Cookie');
+            return;
+          }
+          settings = normalizeSettings(Object.assign({}, settings, { qqCookie: val }));
+          saveSettings();
+          markQQStale(false);
+          renderSettings();
+          setStat('已保存 QQ Cookie（' + val.length + ' 字符）· 只存在本机');
+        } else if (name === 'qq-clear') {
+          settings = normalizeSettings(Object.assign({}, settings, { qqCookie: '' }));
+          saveSettings();
+          markQQStale(false);
+          renderSettings();
+          setStat('已清空 QQ Cookie（VIP 歌会放不出来，免费曲不受影响）');
+        } else if (name === 'qq-check') {
+          checkQQCookie();
         } else if (name === 'settings-done') {
           if (lastResults.length) {
             renderList(lastResults, listKind, labelOf(current) + ' · ' + lastResults.length + ' 条');

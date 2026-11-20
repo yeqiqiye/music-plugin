@@ -200,7 +200,7 @@
    * base 可以显式给（中转地址），不给就用 ShadowSee。
    * 两个上游都只是 JSON 接口，几 KB，不需要 cookie。
    */
-  function request(path, params, base) {
+  function request(path, params, base, extraHeaders) {
     var url = (base || apiBase()) + path + qs(params);
     var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     var timer = setTimeout(function () {
@@ -209,7 +209,7 @@
     return fetch(url, {
       method: 'GET',
       credentials: 'omit',
-      headers: { accept: 'application/json' },
+      headers: Object.assign({ accept: 'application/json' }, extraHeaders || {}),
       signal: ctrl ? ctrl.signal : undefined,
     })
       .then(function (res) {
@@ -350,11 +350,14 @@
     var quality = (opts && opts.quality) === '1080' ? '1080' : '720';
     // 网易云音质档位：标准/较高/极高/无损/Hi-Res/环绕/沉浸/母带（借 IIROSE-MEDIA-WEB 的 8 档）
     var level = String((opts && opts.level) || 'exhigh');
+    // 面板里填的 QQ Cookie（只存在用户自己的浏览器里）：走中转时用请求头带过去
+    var qqCookie = String((opts && opts.qqCookie) || '').trim();
     if (!id) return Promise.resolve({ playable: false, reason: 'no-id', note: '缺少歌曲 id' });
     var base = relayBase();
 
     if (base) {
-      return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality, level: level }, base).then(function (out) {
+      var extra = platform === 'qq' && qqCookie ? { 'x-qq-cookie': qqCookie } : null;
+      return request('/playurl', { platform: platform, id: id, mode: mode, quality: quality, level: level }, base, extra).then(function (out) {
         if (!out || out.ok !== true) throw new Error((out && out.error) || '中转返回异常');
         var data = out.data || { playable: false, reason: 'no-data', note: '中转没有返回播放信息' };
         // 中转（没配 Cookie）拿不到 VIP 曲时，网易云再问一次公共接口，能拿到就拿到

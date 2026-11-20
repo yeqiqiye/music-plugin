@@ -37,7 +37,7 @@ const UA =
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,OPTIONS',
-  'access-control-allow-headers': 'content-type,range',
+  'access-control-allow-headers': 'content-type,range,x-qq-cookie',
   'access-control-max-age': '86400',
 };
 
@@ -1343,14 +1343,28 @@ const worker = {
         const mode = (p.get('mode') || '') === 'video' ? 'video' : 'audio';
         const level = (p.get('level') || '').trim();
         const cacheable = platform !== 'bilibili';
-        const cacheKey = platform + ':' + id + ':' + mode + (level ? ':' + level : '');
+        const userCookieTag =
+          platform === 'qq' && (request.headers.get('x-qq-cookie') || '').trim()
+            ? ':u' + String((request.headers.get('x-qq-cookie') || '').trim()).slice(-12)
+            : '';
+        const cacheKey = platform + ':' + id + ':' + mode + (level ? ':' + level : '') + userCookieTag;
         const hit = cacheable ? playCache.get(cacheKey) : null;
         if (hit && Date.now() - hit.at < PLAY_CACHE_MS) {
           return json({ ok: true, data: hit.value, cached: true });
         }
 
         const quality = p.get('quality') === '1080' ? '1080' : '720';
-        const data = await impl.playurl(id, env, mode, { quality, level });
+        // 面板自己带的 Cookie（x-qq-cookie）优先：用户那把比部署时配的更新
+        const userQQ = (request.headers.get('x-qq-cookie') || '').trim();
+        const envFor =
+          platform === 'qq' && userQQ
+            ? {
+                ...env,
+                QQ_COOKIE: userQQ,
+                QQ_UIN: (userQQ.match(/(?:^|;\s*)uin=(\d+)/) || [])[1] || env.QQ_UIN,
+              }
+            : env;
+        const data = await impl.playurl(id, envFor, mode, { quality, level });
 
         // 注意：下面会改写 data.streamUrl（B 站换成 /stream?id=... ），
         // 所以缓存里要存一份**副本**，否则二次读缓存拿到的是被改写过的地址。
